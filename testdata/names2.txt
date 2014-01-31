@@ -1,0 +1,10 @@
+true: Name at start of file
+Name with leading whitespace: true
+Name with trailing whitespace: true
+Name with whitespace on each end: 123.0
+Name surrounded by literal curly braces: {string value}
+Name surrounded by literal backslashes: \string value\
+Name surrounded by literal backslash/brace sequences: \{string value\}
+
+Escaped brackets: {123}
+Escaped backslash/brace sequences: \{123\}

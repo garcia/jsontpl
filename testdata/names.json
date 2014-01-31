@@ -1,0 +1,10 @@
+{
+    "int": 1000,
+    "double": 3.125,
+    "char_ptr": "string value",
+    "Case_Sensitive": true,
+    "cASE_sENSITIVE": false,
+    "_": 777,
+    "123": 1.23e2,
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_": "valid chars"
+}
