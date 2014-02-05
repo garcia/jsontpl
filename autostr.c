@@ -35,6 +35,15 @@ autostr *autostr_new()
     return instance;
 }
 
+void autostr_free(autostr **instance)
+{
+    if (*instance) {
+        free((*instance)->ptr);
+        free(*instance);
+        *instance = NULL;
+    }
+}
+
 const char *autostr_value(autostr *instance)
 {
     return instance->ptr;
@@ -45,16 +54,18 @@ int autostr_len(autostr *instance)
     return instance->len;
 }
 
-void autostr_recycle(autostr **instance)
+autostr *autostr_recycle(autostr **instance)
 {
     if (*instance) {
         autostr_empty(*instance, 1);
     } else {
         *instance = autostr_new();
     }
+    
+    return *instance;
 }
 
-void autostr_append(autostr *instance, char *append)
+autostr *autostr_append(autostr *instance, const char *append)
 {
     size_t new_len = instance->len + strlen(append);
     char reallocate = 0;
@@ -67,15 +78,19 @@ void autostr_append(autostr *instance, char *append)
     }
     strcpy(instance->ptr + instance->len, append);
     instance->len = new_len;
+    
+    return instance;
 }
 
-void autostr_push(autostr *instance, char push)
+autostr *autostr_push(autostr *instance, char push)
 {
     char append[2] = {push, '\0'};
     autostr_append(instance, append);
+    
+    return instance;
 }
 
-void autostr_ltrim(autostr *instance)
+autostr *autostr_ltrim(autostr *instance)
 {
     size_t i;
     for (i = 0; isspace(instance->ptr[i]); i++) {}
@@ -87,9 +102,11 @@ void autostr_ltrim(autostr *instance)
         instance->len = j - 1;
         autostr_shrink(instance);
     }
+    
+    return instance;
 }
 
-void autostr_rtrim(autostr *instance)
+autostr *autostr_rtrim(autostr *instance)
 {
     size_t i;
     for (i = instance->len; i && isspace(instance->ptr[i - 1]); i--) {}
@@ -98,10 +115,21 @@ void autostr_rtrim(autostr *instance)
         instance->ptr[i] = '\0';
         autostr_shrink(instance);
     }
+    
+    return instance;
 }
 
-void autostr_trim(autostr *instance)
+autostr *autostr_trim(autostr *instance)
 {
-    autostr_ltrim(instance);
-    autostr_rtrim(instance);
+    return autostr_ltrim(autostr_rtrim(instance));
+}
+
+autostr *autostr_apply(autostr *instance, int func(int))
+{
+    size_t i;
+    for (i = 0; i < instance->len; i++) {
+        instance->ptr[i] = func(instance->ptr[i]);
+    }
+    
+    return instance;
 }

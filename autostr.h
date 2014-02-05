@@ -23,6 +23,11 @@ typedef struct {
 autostr *autostr_new();
 
 /**
+ * Deallocate the instance and set the pointer to NULL.
+ */
+void autostr_free(autostr **instance);
+
+/**
  * Get the instance's string.
  */
 const char *autostr_value(autostr *instance);
@@ -36,31 +41,37 @@ int autostr_len(autostr *instance);
  * If instance points to a NULL pointer, assign it to a newly allocated
  * autostr. Otherwise, reset the existing instance to a blank string.
  */
-void autostr_recycle(autostr **instance);
+autostr *autostr_recycle(autostr **instance);
 
 /**
  * Append a string to the instance.
  */
-void autostr_append(autostr *instance, char *append);
+autostr *autostr_append(autostr *instance, const char *append);
 
 /**
  * Append a single char to the instance.
  */
-void autostr_push(autostr *instance, char push);
+autostr *autostr_push(autostr *instance, char push);
 
 /**
  * Trim whitespace from the start of the string.
  */
-void autostr_ltrim(autostr *instance);
+autostr *autostr_ltrim(autostr *instance);
 
 /**
  * Trim whitespace from the end of the string.
  */
-void autostr_rtrim(autostr *instance);
+autostr *autostr_rtrim(autostr *instance);
 
 /**
  * Trim whitespace from both sides of the string.
  */
-void autostr_trim(autostr *instance);
+autostr *autostr_trim(autostr *instance);
+
+/**
+ * Replace each character `c` in the string with the return value of func(c).
+ * Providing tolower or toupper as the function yields the expected result.
+ */
+autostr *autostr_apply(autostr *instance, int func(int));
 
 #endif
