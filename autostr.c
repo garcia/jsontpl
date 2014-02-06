@@ -28,6 +28,10 @@ static void autostr_shrink(autostr *instance)
     }
 }
 
+
+/* Public functions: */
+
+
 autostr *autostr_new()
 {
     autostr *instance = malloc(sizeof(autostr));
