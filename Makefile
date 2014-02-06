@@ -7,5 +7,5 @@ OFILES=$(CFILES:.c=.o)
 $(PROG): $(OFILES)
 	$(CC) -o $(PROG) $(OFILES) $(LFLAGS)
 
-%.o: %.c
+%.o: %.c %.h
 	$(CC) $(CFLAGS) -c -o $@ $<
