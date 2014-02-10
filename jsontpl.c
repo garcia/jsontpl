@@ -10,7 +10,7 @@
 #include "verify.h"
 
 #define verify_json_not_null(obj, full_name) \
-    verify(obj != NULL, "%s: no such item", full_name);
+    verify(obj != NULL, "%s: no such item", full_name->ptr);
 
 #define isident(c) (isalnum(c) || (c) == '_')
 
@@ -136,6 +136,7 @@ static int parse_seq(char *template, size_t *offset, const char *seq)
 
         verify(c == seq[seq_index], "expected '%s', got '%c'", seq, c);
         seq_index++;
+        
         *offset += 1;
         
         if (seq[seq_index] == '\0') {
@@ -224,6 +225,7 @@ static int parse_name(
     json_t *name_context = NULL;
     
     verify_call(clone_json(context, &name_context));
+    verify_call(discard_blank(template, offset));
 
     while ((c = template[*offset]) != '\0') {
         switch (c) {
@@ -285,11 +287,11 @@ static int parse_value(
     autostr *full_name = autostr_new();
     
     if (scope == SCOPE_DISCARD) {
-        verify_call(discard_until(template, offset, "}"));
+        verify_call(discard_until(template, offset, "=}"));
     } else {
         verify_call(parse_name(template, context, offset, full_name, &obj));
         verify_json_not_null(obj, full_name);
-        verify_call(parse_seq(template, offset, "}"));
+        verify_call(parse_seq(template, offset, "=}"));
         verify_call(stringify_json(obj, full_name, output));
     }
     
@@ -318,11 +320,16 @@ static int parse_foreach_array(
     verify_call(parse_identifier(template, offset, value));
     verify_call(parse_seq(template, offset, "%}"));
     
+    if (json_array_size(array) == 0) {
+        verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
+        verify_return();
+    }
+    
     starting_offset = *offset;
     verify_call(clone_json(context, &array_context));
     
     json_array_foreach(array, array_index, array_value) {
-        json_object_set_new(array_context, value->ptr, array_value);
+        json_object_set(array_context, value->ptr, array_value);
         *offset = starting_offset;
         verify_call(parse_scope(template, array_context, SCOPE_BLOCK, offset, output));
     }
@@ -355,6 +362,11 @@ static int parse_foreach_object(
     verify_call(parse_seq(template, offset, "->"));
     verify_call(parse_identifier(template, offset, value));
     verify_call(parse_seq(template, offset, "%}"));
+    
+    if (json_object_size(object) == 0) {
+        verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
+        verify_return();
+    }
     
     starting_offset = *offset;
     verify_call(clone_json(context, &object_context));
@@ -399,6 +411,19 @@ static int parse_foreach(
 }
 
 #undef verify_cleanup
+#define verify_cleanup
+static int parse_comment(
+        char *template,
+        json_t *context,
+        size_t *offset,
+        autostr *output)
+{
+    verify_call(parse_seq(template, offset, "%}"));
+    verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
+    verify_return();
+}
+
+#undef verify_cleanup
 #define verify_cleanup do {                                                 \
     json_decref(obj);                                                       \
     autostr_free(&full_name);                                               \
@@ -414,6 +439,7 @@ static int parse_if(
     autostr *full_name = autostr_new();
     
     verify_call(parse_name(template, context, offset, full_name, &obj));
+    verify_call(parse_seq(template, offset, "%}"));
     
     if (obj == NULL) {
         discard = 1;
@@ -470,6 +496,7 @@ static int parse_block(
         char *end)
 {
     *end = 0;
+    size_t offset_here = *offset;
     autostr *block_type = autostr_new();
     
     verify_call(parse_identifier(template, offset, block_type));
@@ -483,10 +510,16 @@ static int parse_block(
         verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
             
     } else if (strcmp(block_type->ptr, "foreach") == 0) {
-        verify_call(parse_foreach(template, context, offset, output));
+        verify_call_hint(parse_foreach(template, context, offset, output),
+            "foreach block at offset %d", offset_here);
         
     } else if (strcmp(block_type->ptr, "if") == 0) {
-        verify_call(parse_if(template, context, offset, output));
+        verify_call_hint(parse_if(template, context, offset, output),
+            "if block at offset %d", offset_here);
+        
+    } else if (strcmp(block_type->ptr, "comment") == 0) {
+        verify_call_hint(parse_comment(template, context, offset, output),
+            "comment block at offset %d", offset_here);
         
     } else {
         verify_fail("unknown block type '%s'", block_type->ptr);
@@ -519,6 +552,11 @@ static int parse_scope(
                 *offset += 1;
                 switch (next) {
                     
+                    case '=':
+                        *offset += 1;
+                        verify_call(parse_value(template, context, scope, offset, output));
+                        break;
+                    
                     case '%':
                         *offset += 1;
                         verify_call(parse_block(template, context, scope, offset, output, &end));
@@ -529,15 +567,9 @@ static int parse_scope(
                         break;
                     
                     default:
-                        verify_call(parse_value(template, context, scope, offset, output));
+                        if (scope != SCOPE_DISCARD) autostr_push(output, c);
                 }
                 break;
-            
-            case '}':
-                /* Closing curly braces could be treated literally, but this
-                   would make certain errors difficult to debug, so require
-                   them to be escaped. */
-                verify_fail("unmatched }");
             
             case '\\':
                 /* When a backslash precedes a curly brace or another
@@ -547,19 +579,20 @@ static int parse_scope(
                     case '{':
                     case '}':
                     case '\\':
-                        autostr_push(output, next);
-                        *offset += 1;
+                        if (scope != SCOPE_DISCARD) autostr_push(output, next);
+                        *offset += 2;
                         break;
                     default:
-                        autostr_push(output, c);
+                        if (scope != SCOPE_DISCARD) autostr_push(output, c);
+                        *offset += 1;
                 }
                 break;
             
             default:
                 /* Write all other characters to the output buffer. */
-                autostr_push(output, c);
+                if (scope != SCOPE_DISCARD) autostr_push(output, c);
+                *offset += 1;
         }
-        *offset += 1;
     }
     
     verify(scope == SCOPE_FILE, "unexpected EOF");
@@ -576,7 +609,7 @@ static int valid_root(json_t *root, json_error_t error)
 }
 
 #undef verify_cleanup
-#define verify_cleanup autostr_free(&output)
+#define verify_cleanup free(output)
 static int jsontpl_jansson(json_t *root, char *template, char **out)
 {
     autostr *output = autostr_new();
@@ -602,7 +635,6 @@ static int jsontpl_jansson(json_t *root, char *template, char **out)
     }
     
     *out = output->ptr;
-    free(output);
     verify_return();
 }
 

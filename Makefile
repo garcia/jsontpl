@@ -9,3 +9,6 @@ $(PROG): $(OFILES)
 
 %.o: %.c %.h
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	rm -f *.o
