@@ -286,7 +286,7 @@ static int parse_value(
     json_t *obj = NULL;
     autostr *full_name = autostr_new();
     
-    if (scope == SCOPE_DISCARD) {
+    if (scope & SCOPE_DISCARD) {
         verify_call(discard_until(template, offset, "=}"));
     } else {
         verify_call(parse_name(template, context, offset, full_name, &obj));
@@ -331,7 +331,7 @@ static int parse_foreach_array(
     json_array_foreach(array, array_index, array_value) {
         json_object_set(array_context, value->ptr, array_value);
         *offset = starting_offset;
-        verify_call(parse_scope(template, array_context, SCOPE_BLOCK, offset, output));
+        verify_call(parse_scope(template, array_context, SCOPE_FOREACH, offset, output));
     }
     
     verify_return();
@@ -375,7 +375,7 @@ static int parse_foreach_object(
         json_object_set_new(object_context, key->ptr, json_string(object_key));
         json_object_set(object_context, value->ptr, object_value);
         *offset = starting_offset;
-        verify_call(parse_scope(template, object_context, SCOPE_BLOCK, offset, output));
+        verify_call(parse_scope(template, object_context, SCOPE_FOREACH, offset, output));
     }
     
     verify_return();
@@ -419,7 +419,7 @@ static int parse_comment(
         autostr *output)
 {
     verify_call(parse_seq(template, offset, "%}"));
-    verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
+    verify_call(parse_scope(template, context, SCOPE_DISCARD | SCOPE_FORCE_DISCARD, offset, output));
     verify_return();
 }
 
@@ -435,6 +435,7 @@ static int parse_if(
         autostr *output)
 {
     char discard = 0;
+    jsontpl_scope scope = SCOPE_IF;
     json_t *obj = NULL;
     autostr *full_name = autostr_new();
     
@@ -480,7 +481,9 @@ static int parse_if(
         }
     }
     
-    verify_call(parse_scope(template, context, discard ? SCOPE_DISCARD : SCOPE_BLOCK, offset, output));
+    if (discard) scope |= SCOPE_DISCARD;
+    
+    verify_call(parse_scope(template, context, scope, offset, output));
     
     verify_return();
 }
@@ -496,18 +499,45 @@ static int parse_block(
         char *end)
 {
     *end = 0;
+    jsontpl_scope inner_scope;
     size_t offset_here = *offset;
     autostr *block_type = autostr_new();
     
     verify_call(parse_identifier(template, offset, block_type));
     
     if (strcmp(block_type->ptr, "end") == 0) {
-        *end = 1;
         verify_call(parse_seq(template, offset, "%}"));
+        *end = 1;
     
-    } else if (scope == SCOPE_DISCARD) {
+    } else if (strcmp(block_type->ptr, "else") == 0) {
+        if (scope & SCOPE_FORCE_DISCARD) {
+            /* Ignore nested if-else block when discarding input. */
+            verify_call(discard_until(template, offset, "%}"));
+        } else if (scope & SCOPE_IF) {
+            inner_scope = SCOPE_ELSE;
+            if (!(scope & SCOPE_DISCARD)) {
+                inner_scope |= SCOPE_DISCARD;
+            }
+            verify_call(parse_seq(template, offset, "%}"));
+            verify_call(parse_scope(template, context, inner_scope, offset, output));
+            /* Unlike other blocks, else 'steals' the scope from its enclosing
+               if block; when it ends, the if block ends as well. */
+            *end = 1;
+        } else {
+            verify_fail("unexpected else marker");
+        }
+    
+    } else if (scope & SCOPE_DISCARD) {
         verify_call(discard_until(template, offset, "%}"));
-        verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
+        inner_scope = SCOPE_DISCARD;
+        if (strcmp(block_type->ptr, "if") == 0) {
+            /* Normally an else block is allowed to switch the scope from a
+               discarding one to non-discarding and vice-versa, but if the
+               scope in which the if/else block appears is already discarding,
+               the entire block should be silenced. */
+            inner_scope |= SCOPE_FORCE_DISCARD;
+        }
+        verify_call(parse_scope(template, context, inner_scope, offset, output));
             
     } else if (strcmp(block_type->ptr, "foreach") == 0) {
         verify_call_hint(parse_foreach(template, context, offset, output),
@@ -567,7 +597,7 @@ static int parse_scope(
                         break;
                     
                     default:
-                        if (scope != SCOPE_DISCARD) autostr_push(output, c);
+                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
                 }
                 break;
             
@@ -579,18 +609,18 @@ static int parse_scope(
                     case '{':
                     case '}':
                     case '\\':
-                        if (scope != SCOPE_DISCARD) autostr_push(output, next);
+                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, next);
                         *offset += 2;
                         break;
                     default:
-                        if (scope != SCOPE_DISCARD) autostr_push(output, c);
+                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
                         *offset += 1;
                 }
                 break;
             
             default:
                 /* Write all other characters to the output buffer. */
-                if (scope != SCOPE_DISCARD) autostr_push(output, c);
+                if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
                 *offset += 1;
         }
     }

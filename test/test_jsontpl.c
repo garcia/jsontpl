@@ -65,6 +65,14 @@ test_case tests[] = {
         "{\"object\": {\"one\": {\"required_value\": true}, \"two\": {\"required_value\": true, \"optional_value\": true}, \"three\": {\"required_value\": true}}}",
         "{% foreach object: k -> v %}{= k =}: {= v.required_value =}{% if v.optional_value %} ({= v.optional_value =}){% end %}; {% end %}",
         "one: true; two: true (true); three: true; "
+    }, {"if-else",
+        "{\"alpha\": true}",
+        "({% if alpha %}Alpha{% else %}Beta{% end %} {% if beta %}Beta{% else %}Alpha{% end %})",
+        "(Alpha Alpha)"
+    }, {"nested if-else",
+        "{\"alpha\": true}",
+        "({% if alpha %}Alpha{% if beta %}Beta{% else %}Alpha{% end %}{% end %} {% if beta %}Beta{% if alpha %}Alpha{% else %}Beta{% end %}{% end %})",
+        "(AlphaAlpha )"
     }, {NULL}
 };
 
