@@ -1,9 +1,0 @@
-Here are the numbers in the list: 1 500 9.875 -400000.0 
-Here are the strings in the list: these are some strings 
-Here are the literals in the list: true false null 
-Here are the heterogeneous elements: 3 elements true 
-
-Here's what the nested list contains:
-    a b c 
-    1 2 3 
-    null false true 

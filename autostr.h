@@ -69,6 +69,11 @@ autostr *autostr_rtrim(autostr *instance);
 autostr *autostr_trim(autostr *instance);
 
 /**
+ * Compare the instance's value to the other value.
+ */
+int autostr_cmp(autostr *instance, const char *other);
+
+/**
  * Replace each character `c` in the string with the return value of func(c).
  * Providing tolower or toupper as the function yields the expected result.
  */

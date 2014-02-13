@@ -1,7 +1,0 @@
-Numbers: 1000 3.125 777 123.0
-Strings: string value valid chars
-Booleans: true false
-
-Names without whitespace: 100010001000
-3.125: Name starting on a new line
-Name at end of file: string value

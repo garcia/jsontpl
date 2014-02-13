@@ -9,38 +9,20 @@
 #include "jsontpl.h"
 #include "verify.h"
 
-typedef enum {
-    STATE_LITERAL,
-    STATE_READ_NAME,
-    STATE_READ_FILTER,
-    STATE_READ_ARRAY_NAME,
-    STATE_READ_ARRAY_VALUE,
-    STATE_READ_OBJECT_NAME,
-    STATE_READ_OBJECT_KEY,
-    STATE_READ_OBJECT_VALUE,
-} jsontpl_state;
+#define verify_json_not_null(obj, full_name) \
+    verify(obj != NULL, "%s: no such item", full_name->ptr);
 
-typedef enum {
-    SCOPE_FILE,
-    SCOPE_ARRAY,
-    SCOPE_OBJECT,
-} jsontpl_scope;
+#define isident(c) (isalnum(c) || (c) == '_')
 
-#ifdef JSONTPL_MAIN
-static char *scope_terminator[3] = {
-    "EOF",
-    "{[/]}",
-    "{{/}}",
-};
-#endif
+static int parse_scope(
+        char *template,
+        json_t *context,
+        jsontpl_scope scope,
+        size_t *offset,
+        autostr *output);
 
-static char *heap_string(const char *str)
-{
-    char *rtn = malloc(strlen(str) + 1);
-    strcpy(rtn, str);
-    return rtn;
-}
-
+#undef verify_cleanup
+#define verify_cleanup
 static int valid_name(json_t *context, autostr *name, autostr *full_name)
 {
     verify(name->len, "empty name");
@@ -49,29 +31,35 @@ static int valid_name(json_t *context, autostr *name, autostr *full_name)
     verify_return();
 }
 
-static int stringify_json(json_t *value, autostr *full_name, char **out)
+#undef verify_cleanup
+#define verify_cleanup
+static int stringify_json(json_t *value, autostr *full_name, autostr *out)
 {
+    char *number;
+    
     switch (json_typeof(value)) {
         
         case JSON_NULL:
-            *out = heap_string("null");
+            autostr_append(out, "null");
             break;
         
         case JSON_FALSE:
-            *out = heap_string("false");
+            autostr_append(out, "false");
             break;
         
         case JSON_TRUE:
-            *out = heap_string("true");
+            autostr_append(out, "true");
             break;
         
         case JSON_STRING:
-            *out = heap_string(json_string_value(value));
+            autostr_append(out, json_string_value(value));
             break;
         
         case JSON_INTEGER:
         case JSON_REAL:
-            *out = json_dumps(value, JSON_ENCODE_ANY);
+            number = json_dumps(value, JSON_ENCODE_ANY);
+            autostr_append(out, number);
+            free(number);
             break;
         
         default:
@@ -94,402 +82,552 @@ static int clone_json(json_t *json, json_t **clone)
 
 #undef verify_cleanup
 #define verify_cleanup
-static int apply_filter(json_t *value, const char *filter, json_t **out)
+static int discard_blank(char *template, size_t *offset)
 {
-    if (!strcmp(filter, "upper") || !strcmp(filter, "lower")) {
-        char upper = (filter[0] == 'u');
-        verify(json_is_string(value), JSONTPL_FILTER_ERROR, filter, "string");
+    char c;
+    
+    while ((c = template[*offset]) != '\0') {
+        if (!isblank(c)) {
+            verify_return();
+        }
+        *offset += 1;
+    }
+    
+    /* EOF is certainly an error here, but let the caller decide on the error
+       message, because "EOF encountered while discarding whitespace" wouldn't
+       be terribly helpful. */
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup
+static int discard_until(char *template, size_t *offset, const char *seq)
+{
+    char c;
+    size_t seq_index = 0;
+    
+    while ((c = template[*offset]) != '\0') {
+        
+        if (seq[seq_index] == '\0') {
+            verify_return();
+        }
+        if (c == seq[seq_index]) {
+            seq_index++;
+        } else {
+            seq_index = 0;
+        }
+        
+        *offset += 1;
+    }
+    
+    verify_fail("expected '%s', got EOF", seq);
+}
+
+#undef verify_cleanup
+#define verify_cleanup
+static int parse_seq(char *template, size_t *offset, const char *seq)
+{
+    char c;
+    size_t seq_index = 0;
+    
+    verify_call(discard_blank(template, offset));
+    
+    while ((c = template[*offset]) != '\0') {
+
+        verify(c == seq[seq_index], "expected '%s', got '%c'", seq, c);
+        seq_index++;
+        
+        *offset += 1;
+        
+        if (seq[seq_index] == '\0') {
+            verify_return();
+        }
+    }
+    
+    verify_fail("expected '%s', got EOF", seq);
+}
+
+#undef verify_cleanup
+#define verify_cleanup autostr_trim(identifier)
+static int parse_identifier(
+        char *template,
+        size_t *offset,
+        autostr *identifier)
+{
+    char c;
+    char seen_ident = 0;
+    
+    verify_call(discard_blank(template, offset));
+    
+    while ((c = template[*offset]) != '\0') {
+        
+        if (isident(c)) {
+            seen_ident = 1;
+            autostr_push(identifier, c);
+        } else {
+            verify(seen_ident, "expected an identifier, got '%c'", c);
+            verify_call(discard_blank(template, offset));
+            verify_return();
+        }
+        
+        *offset += 1;
+    }
+    
+    verify_fail("EOF while reading identifier");
+}
+
+#undef verify_cleanup
+#define verify_cleanup autostr_free(&filter)
+static int parse_filter(
+        char *template,
+        size_t *offset,
+        json_t **obj)
+{
+    autostr *filter = autostr_new();
+    
+    verify_call(parse_identifier(template, offset, filter));
+    
+    if (!autostr_cmp(filter, "upper") || !autostr_cmp(filter, "lower")) {
+        char upper = (filter->ptr[0] == 'u');
+        verify(json_is_string(*obj), JSONTPL_FILTER_ERROR, filter->ptr, "string");
         autostr *transformed = autostr_apply(autostr_append(autostr_new(),
-            json_string_value(value)), upper ? toupper : tolower);
-        *out = json_string(autostr_value(transformed));
+            json_string_value(*obj)), upper ? toupper : tolower);
+        *obj = json_string(autostr_value(transformed));
         autostr_free(&transformed);
     
-    } else if (!strcmp(filter, "count")) {
-        verify(json_is_array(value) || json_is_object(value),
-            JSONTPL_FILTER_ERROR, filter, "array or object");
-        *out = json_integer(json_is_array(value) ?
-            json_array_size(value) : json_object_size(value));
+    } else if (!autostr_cmp(filter, "count")) {
+        verify(json_is_array(*obj) || json_is_object(*obj),
+            JSONTPL_FILTER_ERROR, filter->ptr, "array or object");
+        *obj = json_integer(json_is_array(*obj) ?
+            json_array_size(*obj) : json_object_size(*obj));
     
     } else {
-        verify_fail("unknown filter '%s'", filter);
+        verify_fail("unknown filter '%s'", filter->ptr);
     }
     
     verify_return();
 }
-
-static int valid_exit(jsontpl_scope scope, jsontpl_scope terminator)
-{
-    verify(scope == terminator, "expected %s but reached %s",
-        scope_terminator[scope], scope_terminator[terminator]);
-    verify_return();
-}
-
-/* Convenience macro.  Note that the first variadic argument gets concatenated
-   to the "invalid sequence: " string. */
-#define verify_seq(p, ...) verify(p, "invalid sequence: " __VA_ARGS__)
-
-/* Convenience macro.  Blank characters are lazily permitted to allow for 
-   surrounding whitespace. */
-#define isident(c) (isalnum(c) || isblank(c) || c == '_')
 
 #undef verify_cleanup
 #define verify_cleanup do {                                                 \
     json_decref(name_context);                                              \
-    json_decref(nested_context);                                            \
-    json_decref(filtered);                                                  \
     autostr_free(&name);                                                    \
+} while (0)
+static int parse_name(
+        char *template,
+        json_t *context,
+        size_t *offset,
+        autostr *full_name,
+        json_t **obj)
+{
+    char c;
+    autostr *name = autostr_new();
+    json_t *name_context = NULL;
+    
+    verify_call(clone_json(context, &name_context));
+    verify_call(discard_blank(template, offset));
+
+    while ((c = template[*offset]) != '\0') {
+        switch (c) {
+            
+            case '.':
+                /* Periods indicate object subscripting.  The name up to the
+                   period must be an object in the context.  That object then
+                   becomes the context. */
+                verify(autostr_len(name), "empty name component");
+                verify_call(valid_name(name_context, name, full_name));
+                *obj = json_object_get(name_context, name->ptr);
+                verify(json_is_object(*obj), "%s: not an object", full_name->ptr);
+                autostr_push(full_name, '.');
+                json_incref(*obj);
+                json_decref(name_context);
+                name_context = *obj;
+                autostr_recycle(&name);
+                *offset += 1;
+                break;
+            
+            case '|':
+                /* Pipes indicate filters. */
+                verify_call(valid_name(name_context, name, full_name));
+                *obj = json_object_get(name_context, name->ptr);
+                json_incref(*obj);
+                *offset += 1;
+                verify_call(parse_filter(template, offset, obj));
+                verify_return();
+            
+            default:
+                if (isident(c)) {
+                    verify_call(parse_identifier(template, offset, name));
+                    autostr_append(full_name, name->ptr);
+                } else {
+                    *obj = json_object_get(name_context, name->ptr);
+                    json_incref(*obj);
+                    verify_return();
+                }
+        }
+        
+    }
+    
+    verify_fail("EOF while reading name");
+}
+
+#undef verify_cleanup
+#define verify_cleanup do {                                                 \
+    json_decref(obj);                                                       \
     autostr_free(&full_name);                                               \
-    autostr_free(&filter);                                                  \
+} while (0)
+static int parse_value(
+        char *template,
+        json_t *context,
+        jsontpl_scope scope,
+        size_t *offset,
+        autostr *output)
+{
+    json_t *obj = NULL;
+    autostr *full_name = autostr_new();
+    
+    if (scope & SCOPE_DISCARD) {
+        verify_call(discard_until(template, offset, "=}"));
+    } else {
+        verify_call(parse_name(template, context, offset, full_name, &obj));
+        verify_json_not_null(obj, full_name);
+        verify_call(parse_seq(template, offset, "=}"));
+        verify_call(stringify_json(obj, full_name, output));
+    }
+    
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup do {                                                 \
+    json_decref(array_context);                                             \
+    autostr_free(&value);                                                   \
+} while (0)
+static int parse_foreach_array(
+        char *template,
+        json_t *context,
+        json_t *array,
+        size_t *offset,
+        autostr *output)
+{
+    size_t starting_offset;
+    json_t *array_context = NULL;
+    autostr *value = autostr_new();
+    // Borrowed references; no need to free during cleanup]
+    size_t array_index;
+    json_t *array_value;
+    
+    verify_call(parse_identifier(template, offset, value));
+    verify_call(parse_seq(template, offset, "%}"));
+    
+    if (json_array_size(array) == 0) {
+        verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
+        verify_return();
+    }
+    
+    starting_offset = *offset;
+    verify_call(clone_json(context, &array_context));
+    
+    json_array_foreach(array, array_index, array_value) {
+        json_object_set(array_context, value->ptr, array_value);
+        *offset = starting_offset;
+        verify_call(parse_scope(template, array_context, SCOPE_FOREACH, offset, output));
+    }
+    
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup do {                                                 \
+    json_decref(object_context);                                            \
     autostr_free(&key);                                                     \
     autostr_free(&value);                                                   \
-    autostr_free(&nested_output);                                           \
 } while (0)
-static int parse_scope(char *template,
-                       size_t offset,
-                       json_t *context,
-                       jsontpl_scope scope,
-                       autostr **output,
-                       size_t *last_offset)
+static int parse_foreach_object(
+        char *template,
+        json_t *context,
+        json_t *object,
+        size_t *offset,
+        autostr *output)
 {
-    char c, next, nextnext;
-    jsontpl_state state = STATE_LITERAL;
+    size_t starting_offset;
+    json_t *object_context = NULL;
+    autostr *key = autostr_new(),
+            *value = autostr_new();
+    // Borrowed references; no need to free during cleanup
+    const char *object_key;
+    json_t *object_value;
     
-    json_t  *name_context = NULL,
-            *nested_context = NULL,
-            *nested_value = NULL,
-            *filtered = NULL;
-    autostr *full_name = NULL,
-            *name = NULL,
-            *filter = NULL,
-            *key = NULL,
-            *value = NULL,
-            *nested_output = NULL;
+    verify_call(parse_identifier(template, offset, key));
+    verify_call(parse_seq(template, offset, "->"));
+    verify_call(parse_identifier(template, offset, value));
+    verify_call(parse_seq(template, offset, "%}"));
     
-    /* Used in the STATE_READ_*NAME block. */
-    const char *braces;
-    jsontpl_scope terminator;
-    jsontpl_state next_state;
-    char *encoded;
+    if (json_object_size(object) == 0) {
+        verify_call(parse_scope(template, context, SCOPE_DISCARD, offset, output));
+        verify_return();
+    }
     
-    /* Used in the STATE_READ_*_VALUE blocks. */
-    size_t nested_offset;
-    size_t nested_index;
-    const char *nested_key;
+    starting_offset = *offset;
+    verify_call(clone_json(context, &object_context));
     
-    *output = autostr_new();
+    json_object_foreach(object, object_key, object_value) {
+        json_object_set_new(object_context, key->ptr, json_string(object_key));
+        json_object_set(object_context, value->ptr, object_value);
+        *offset = starting_offset;
+        verify_call(parse_scope(template, object_context, SCOPE_FOREACH, offset, output));
+    }
     
-    while ((c = template[offset]) != '\0') {
-        next = template[offset + 1];
-        nextnext = next ? template[offset + 2] : '\0';
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup do {                                                 \
+    json_decref(obj);                                                       \
+    autostr_free(&full_name);                                               \
+} while (0)
+static int parse_foreach(
+        char *template,
+        json_t *context,
+        size_t *offset,
+        autostr *output)
+{
+    json_t *obj = NULL;
+    autostr *full_name = autostr_new();
+    
+    verify_call(parse_name(template, context, offset, full_name, &obj));
+    verify_json_not_null(obj, full_name);
+    verify_call(parse_seq(template, offset, ":"));
+    
+    if (json_is_array(obj)) {
+        verify_call(parse_foreach_array(template, context, obj, offset, output));
+    } else if (json_is_object(obj)) {
+        verify_call(parse_foreach_object(template, context, obj, offset, output));
+    } else {
+        verify_fail("foreach block requires an object or array");
+    }
+    
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup
+static int parse_comment(
+        char *template,
+        json_t *context,
+        size_t *offset,
+        autostr *output)
+{
+    verify_call(parse_seq(template, offset, "%}"));
+    verify_call(parse_scope(template, context, SCOPE_DISCARD | SCOPE_FORCE_DISCARD, offset, output));
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup do {                                                 \
+    json_decref(obj);                                                       \
+    autostr_free(&full_name);                                               \
+} while (0)
+static int parse_if(
+        char *template,
+        json_t *context,
+        size_t *offset,
+        autostr *output)
+{
+    char discard = 0;
+    jsontpl_scope scope = SCOPE_IF;
+    json_t *obj = NULL;
+    autostr *full_name = autostr_new();
+    
+    verify_call(parse_name(template, context, offset, full_name, &obj));
+    verify_call(parse_seq(template, offset, "%}"));
+    
+    if (obj == NULL) {
+        discard = 1;
+    
+    } else {
+        switch (json_typeof(obj)) {
+            
+            case JSON_NULL:
+            case JSON_FALSE:
+                discard = 1;
+                break;
+            
+            case JSON_TRUE:
+                break;
+            
+            case JSON_REAL:
+                discard = !json_real_value(obj);
+                break;
+            
+            case JSON_INTEGER:
+                discard = !json_integer_value(obj);
+                break;
+            
+            case JSON_STRING:
+                discard = !json_string_value(obj)[0];
+                break;
+            
+            case JSON_ARRAY:
+                discard = !json_array_size(obj);
+                break;
+            
+            case JSON_OBJECT:
+                discard = !json_object_size(obj);
+                break;
+            
+            default:
+                verify_fail("internal error: unknown JSON type");
+        }
+    }
+    
+    if (discard) scope |= SCOPE_DISCARD;
+    
+    verify_call(parse_scope(template, context, scope, offset, output));
+    
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup autostr_free(&block_type)
+static int parse_block(
+        char *template,
+        json_t *context,
+        jsontpl_scope scope,
+        size_t *offset,
+        autostr *output,
+        char *end)
+{
+    *end = 0;
+    jsontpl_scope inner_scope;
+    size_t offset_here = *offset;
+    autostr *block_type = autostr_new();
+    
+    verify_call(parse_identifier(template, offset, block_type));
+    
+    if (strcmp(block_type->ptr, "end") == 0) {
+        verify_call(parse_seq(template, offset, "%}"));
+        *end = 1;
+    
+    } else if (strcmp(block_type->ptr, "else") == 0) {
+        if (scope & SCOPE_FORCE_DISCARD) {
+            /* Ignore nested if-else block when discarding input. */
+            verify_call(discard_until(template, offset, "%}"));
+        } else if (scope & SCOPE_IF) {
+            inner_scope = SCOPE_ELSE;
+            if (!(scope & SCOPE_DISCARD)) {
+                inner_scope |= SCOPE_DISCARD;
+            }
+            verify_call(parse_seq(template, offset, "%}"));
+            verify_call(parse_scope(template, context, inner_scope, offset, output));
+            /* Unlike other blocks, else 'steals' the scope from its enclosing
+               if block; when it ends, the if block ends as well. */
+            *end = 1;
+        } else {
+            verify_fail("unexpected else marker");
+        }
+    
+    } else if (scope & SCOPE_DISCARD) {
+        verify_call(discard_until(template, offset, "%}"));
+        inner_scope = SCOPE_DISCARD;
+        if (strcmp(block_type->ptr, "if") == 0) {
+            /* Normally an else block is allowed to switch the scope from a
+               discarding one to non-discarding and vice-versa, but if the
+               scope in which the if/else block appears is already discarding,
+               the entire block should be silenced. */
+            inner_scope |= SCOPE_FORCE_DISCARD;
+        }
+        verify_call(parse_scope(template, context, inner_scope, offset, output));
+            
+    } else if (strcmp(block_type->ptr, "foreach") == 0) {
+        verify_call_hint(parse_foreach(template, context, offset, output),
+            "foreach block at offset %d", offset_here);
+        
+    } else if (strcmp(block_type->ptr, "if") == 0) {
+        verify_call_hint(parse_if(template, context, offset, output),
+            "if block at offset %d", offset_here);
+        
+    } else if (strcmp(block_type->ptr, "comment") == 0) {
+        verify_call_hint(parse_comment(template, context, offset, output),
+            "comment block at offset %d", offset_here);
+        
+    } else {
+        verify_fail("unknown block type '%s'", block_type->ptr);
+    }
+    
+    verify_return();
+}
+
+#undef verify_cleanup
+#define verify_cleanup
+static int parse_scope(
+        char *template,
+        json_t *context,
+        jsontpl_scope scope,
+        size_t *offset,
+        autostr *output)
+{
+    char c, next;
+    char end;
+    
+    while ((c = template[*offset]) != '\0') {
+        next = template[*offset + 1];
         /* Useful for debugging:
            verify_log_("%c", c); */
         
-        switch (state) {
+        switch (c) {
             
-            case STATE_LITERAL:
-                /* The 'default' state. Template characters are outputted
-                   directly unless it's a curly brace or backslash. */
-                switch (c) {
+            case '{':
+                /* Curly braces indicate a value or a block. */
+                *offset += 1;
+                switch (next) {
                     
+                    case '=':
+                        *offset += 1;
+                        verify_call(parse_value(template, context, scope, offset, output));
+                        break;
+                    
+                    case '%':
+                        *offset += 1;
+                        verify_call(parse_block(template, context, scope, offset, output, &end));
+                        if (end) {
+                            verify(scope != SCOPE_FILE, "unmatched block terminator");
+                            verify_return();
+                        }
+                        break;
+                    
+                    default:
+                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
+                }
+                break;
+            
+            case '\\':
+                /* When a backslash precedes a curly brace or another
+                   backslash, print that character literally and skip this
+                   backslash.  Otherwise, print this backslash literally. */
+                switch (next) {                        
                     case '{':
-                        /* Curly brace encountered during literal text: about
-                           to read a name, possibly of an array or object. */
-                        autostr_recycle(&name);
-                        autostr_recycle(&full_name);
-                        verify_call(clone_json(context, &name_context));
-                        switch (next) {
-                            case '[':
-                                state = STATE_READ_ARRAY_NAME;
-                                offset++;
-                                break;
-                            case '{':
-                                state = STATE_READ_OBJECT_NAME;
-                                offset++;
-                                break;
-                            default:
-                                state = STATE_READ_NAME;
-                        }
-                        break;
-                    
                     case '}':
-                        /* Closing curly braces could be treated literally, but
-                           this would make certain errors difficult to debug,
-                           so require them to be escaped. */
-                        verify_fail("unmatched }");
-                    
                     case '\\':
-                        /* Backslash encountered during literal text: if it
-                           precedes a curly brace or another backslash, print
-                           that character literally and skip this backslash.
-                           Otherwise, print this backslash literally. */
-                        switch (next) {                        
-                            case '{':
-                            case '}':
-                            case '\\':
-                                autostr_push(*output, next);
-                                offset++;
-                                break;
-                            default:
-                                autostr_push(*output, c);
-                        }
-                        break;
-                    
-                    default:
-                        /* Literal character: write to the output buffer. */
-                        autostr_push(*output, c);
-                }
-                break;
-            
-            case STATE_READ_NAME:
-            case STATE_READ_ARRAY_NAME:
-            case STATE_READ_OBJECT_NAME:
-                /* All name states have some behavior in common, so they're
-                   merged into one block of code. */
-                switch (state) {
-                    case STATE_READ_ARRAY_NAME:
-                        braces = "[]";
-                        terminator = SCOPE_ARRAY;
-                        next_state = STATE_READ_ARRAY_VALUE;
-                        break;
-                    case STATE_READ_OBJECT_NAME:
-                        braces = "{}";
-                        terminator = SCOPE_OBJECT;
-                        next_state = STATE_READ_OBJECT_KEY;
+                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, next);
+                        *offset += 2;
                         break;
                     default:
-                        break;
-                }
-                switch (c) {
-                    
-                    case '/':
-                        /* Forward slashes are only legal for array and object
-                           names, and they must be the only character in the
-                           name. Such a sequence indicates the end of an array
-                           or object block. */
-                        verify_seq(state != STATE_READ_NAME, "{.../");
-                        verify_seq(!autostr_len(name), "{%c.../", braces[0]);
-                        verify_seq(next == braces[1], "{%c/%c", braces[0], next);
-                        verify_seq(nextnext == '}', "{%c/%c%c", braces[0], braces[1], nextnext);
-                        *last_offset = offset + 2;
-                        verify_call(valid_exit(scope, terminator));
-                        verify_return();
-                    
-                    case '}':
-                        /* Closing curly braces cannot follow array or object
-                           names, which must first be followed by a value name
-                           or key -> value pair, respectively. Otherwise, the
-                           brace terminates the name and returns to literal
-                           text parsing. */
-                        verify_seq(state == STATE_READ_NAME, "{%c...}", braces[0]);
-                        autostr_trim(name);
-                        autostr_trim(full_name);
-                        verify_call(valid_name(name_context, name, full_name));
-                        verify_call(stringify_json(json_object_get(name_context, name->ptr), full_name, &encoded));
-                        autostr_append(*output, encoded);
-                        free(encoded);
-                        json_decref(name_context);
-                        name_context = NULL;
-                        state = STATE_LITERAL;
-                        break;
-                    
-                    case ':':
-                        /* Colons terminate array and object names and mark the
-                           start of the array value name or object key name. */
-                        verify_seq(state != STATE_READ_NAME, "{...:");
-                        autostr_trim(name);
-                        /* Only one of the key or value needs to be recycled,
-                           depending on the state, but doing both won't hurt. */
-                        autostr_recycle(&key);
-                        autostr_recycle(&value);
-                        state = next_state;
-                        break;
-                    
-                    case '.':
-                        /* Periods indicate object subscripting. The name up to
-                           the period must be an object in the context. */
-                        autostr_trim(name);
-                        verify_call(valid_name(name_context, name, full_name));
-                        json_t *obj = json_object_get(name_context, name->ptr);
-                        verify(json_is_object(obj), "%s: not an object", full_name->ptr);
-                        autostr_push(full_name, '.');
-                        json_incref(obj);
-                        json_decref(name_context);
-                        name_context = obj;
-                        autostr_recycle(&name);
-                        break;
-                    
-                    case '|':
-                        /* Pipes indicate filters. Filters are currently not
-                           supported for array / object blocks because there
-                           are no filters that return an array or object. */
-                        verify_seq(state == STATE_READ_NAME, "{%c...:", braces[0]);
-                        autostr_trim(name);
-                        autostr_trim(full_name);
-                        verify_call(valid_name(name_context, name, full_name));
-                        autostr_recycle(&filter);
-                        state = STATE_READ_FILTER;
-                        break;
-                    
-                    default:
-                        /* A character in the name. Names can only contain
-                           alphanumeric characters, underscores, spaces,
-                           and tabs. */
-                        verify_seq(isident(c), "{...%c", c);
-                        autostr_push(name, c);
-                        autostr_push(full_name, c);
-                }
-                break;
-            
-            case STATE_READ_FILTER:
-                /* TODO: doc */
-                switch (c) {
-                
-                    case '}':
-                        autostr_trim(filter);
-                        json_t *obj = json_object_get(name_context, name->ptr);
-                        verify_call(apply_filter(obj, autostr_value(filter), &filtered));
-                        verify_call(stringify_json(obj, full_name, &encoded));
-                        autostr_append(*output, encoded);
-                        free(encoded);
-                        json_decref(filtered);
-                        filtered = NULL;
-                        json_decref(name_context);
-                        name_context = NULL;
-                        state = STATE_LITERAL;
-                        break;
-                    
-                    default:
-                        verify_seq(isident(c), "{...|...%c", c);
-                        autostr_push(filter, c);
-                }
-                break;
-            
-            case STATE_READ_ARRAY_VALUE:
-                /* The array value is the name to which each member of the array
-                   will be assigned inside the array block. */
-                switch (c) {
-                    
-                    case ']':
-                        /* The sequence is terminated by a ]} pattern. */
-                        verify_seq(next == '}', "{[...:...]%c", next);
-                        offset += 2;                        
-                        autostr_trim(value);
-                        verify_seq(value->len, "{[...:]}");
-                        
-                        /* Set up the environment for the recursively-called
-                           parser, which inherits the parent context with the
-                           addition of the array value. */
-                        nested_offset = offset;
-                        json_t *array = json_object_get(name_context, name->ptr);
-                        verify(json_is_array(array), "not an array: %s", full_name->ptr);
-                        verify_call(clone_json(context, &nested_context));
-                        verify_call(valid_name(name_context, name, full_name));
-                        
-                        json_array_foreach(array, nested_index, nested_value) {
-                            json_object_set(nested_context, value->ptr, nested_value);
-                            verify_call(parse_scope(template, nested_offset, nested_context,
-                                                    SCOPE_ARRAY, &nested_output, &offset));
-                            autostr_append(*output, autostr_value(nested_output));
-                            autostr_free(&nested_output);
-                        }
-                        
-                        json_decref(name_context);
-                        name_context = NULL;
-                        json_decref(nested_context);
-                        nested_context = NULL;
-                        state = STATE_LITERAL;
-                        break;
-                    
-                    default:
-                        /* A character in the value. Value names follow the same
-                           rules as names. */
-                        verify_seq(isident(c), "{[...:...%c", c);
-                        autostr_push(value, c);
-                }
-                break;
-                
-            case STATE_READ_OBJECT_KEY:
-                /* The object key is the name to which each key of the object
-                   will be assigned inside the object block. */
-                switch (c) {
-                    
-                    case '-':
-                        /* The key is terminated by a -> pattern. */
-                        verify_seq(next == '>', "{[...:...-%c", c);
-                        autostr_trim(key);
-                        autostr_recycle(&value);
-                        state = STATE_READ_OBJECT_VALUE;
-                        offset++;
-                        break;
-                    
-                    default:
-                        /* A character in the key. Key names follow the same
-                           rules as names. */
-                        verify_seq(isident(c), "{[...:...%c", c);
-                        autostr_push(key, c);
-                }
-                break;
-            
-            case STATE_READ_OBJECT_VALUE:
-                /* The object value is the name to which each value of the object
-                   will be assigned inside the object block. */
-                switch (c) {
-                    
-                    case '}':
-                        /* The sequence is terminated by a }} pattern. */
-                        verify_seq(next == '}', "{{...:...:...}%c", next);
-                        offset += 2;
-                        autostr_trim(value);
-                        verify_seq(value->len, "{{...:...:}}");
-                        
-                        /* Set up the environment for the recursively-called
-                           parser, which inherits the parent context with the
-                           addition of the object key and value. */
-                        nested_offset = offset;
-                        json_t *object = json_object_get(name_context, name->ptr);
-                        verify(json_is_object(object), "not an object: %s", name->ptr);
-                        verify_call(clone_json(context, &nested_context));
-                        verify_call(valid_name(name_context, name, full_name));
-                        
-                        json_object_foreach(object, nested_key, nested_value) {
-                            json_object_set_new(nested_context, key->ptr, json_string(nested_key));
-                            json_object_set(nested_context, value->ptr, nested_value);
-                            verify_call(parse_scope(template, nested_offset, nested_context,
-                                                    SCOPE_OBJECT, &nested_output, &offset));
-                            autostr_append(*output, autostr_value(nested_output));
-                            autostr_free(&nested_output);
-                        }
-                        
-                        json_decref(name_context);
-                        name_context = NULL;
-                        json_decref(nested_context);
-                        nested_context = NULL;
-                        state = STATE_LITERAL;
-                        break;
-                    
-                    default:
-                        /* A character in the value. Value names follow the same
-                           rules as names. */
-                        verify_seq(isident(c), "{{...:...->...%c", c);
-                        autostr_push(value, c);
+                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
+                        *offset += 1;
                 }
                 break;
             
             default:
-                verify_fail("invalid state");
+                /* Write all other characters to the output buffer. */
+                if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
+                *offset += 1;
         }
-        
-        offset++;
-        *last_offset = offset;
     }
     
-    verify_call(valid_exit(scope, SCOPE_FILE));
-    verify(state == STATE_LITERAL, "unexpected EOF");
+    verify(scope == SCOPE_FILE, "unexpected EOF");
     verify_return();
 }
-
-#undef verify_seq
-#undef isident
 
 #undef verify_cleanup
 #define verify_cleanup
@@ -501,19 +639,19 @@ static int valid_root(json_t *root, json_error_t error)
 }
 
 #undef verify_cleanup
-#define verify_cleanup autostr_free(&output)
+#define verify_cleanup free(output)
 static int jsontpl_jansson(json_t *root, char *template, char **out)
 {
-    autostr *output = NULL;
-    size_t last_offset;
+    autostr *output = autostr_new();
+    size_t offset = 0;
     
-    if (parse_scope(template, 0, root, SCOPE_FILE, &output, &last_offset)) {
+    if (parse_scope(template, root, SCOPE_FILE, &offset, output)) {
 #if VERIFY_LOG
         size_t line_count = 1,
                line_columns = 1,
-               offset;
-        for (offset = 0; offset < last_offset; offset++) {
-            if (template[offset] == '\n') {
+               current_offset;
+        for (current_offset = 0; current_offset < offset; current_offset++) {
+            if (template[current_offset] == '\n') {
                 line_count++;
                 line_columns = 1;
             } else {
@@ -526,7 +664,7 @@ static int jsontpl_jansson(json_t *root, char *template, char **out)
 #endif // VERIFY_LOG
     }
     
-    *out = heap_string(autostr_value(output));
+    *out = output->ptr;
     verify_return();
 }
 
@@ -575,14 +713,14 @@ int jsontpl_file(char *json_filename, char *template_filename, char **out)
     // Get file size
     fseek(template_file, 0, SEEK_END);
     filesize_ftell = ftell(template_file);
-    verify(filesize_ftell != -1L);
+    verify_bare(filesize_ftell != -1L);
     rewind(template_file);
     
     // Read template into memory
     template = malloc(filesize_ftell + 1);
     template[filesize_ftell] = '\0';
     filesize_fread = fread(template, 1, filesize_ftell, template_file);
-    verify(filesize_ftell == filesize_fread);
+    verify_bare(filesize_ftell == filesize_fread);
     fclose(template_file);
     
     verify_call(jsontpl_jansson(root, template, out));
@@ -614,3 +752,6 @@ int main(int argc, char *argv[])
     return rtn;
 }
 #endif
+
+#undef verify_json_not_null
+#undef isident

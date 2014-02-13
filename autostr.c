@@ -128,6 +128,11 @@ autostr *autostr_trim(autostr *instance)
     return autostr_ltrim(autostr_rtrim(instance));
 }
 
+int autostr_cmp(autostr *instance, const char *other)
+{
+    return strcmp(instance->ptr, other);
+}
+
 autostr *autostr_apply(autostr *instance, int func(int))
 {
     size_t i;
