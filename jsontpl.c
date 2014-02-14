@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,12 +6,9 @@
 
 #include "autostr.h"
 #include "jsontpl.h"
+#include "jsontpl_filter.h"
+#include "jsontpl_util.h"
 #include "verify.h"
-
-#define verify_json_not_null(obj, full_name) \
-    verify(obj != NULL, "%s: no such item", full_name->ptr);
-
-#define isident(c) (isalnum(c) || (c) == '_')
 
 static int parse_scope(
         char *template,
@@ -20,65 +16,6 @@ static int parse_scope(
         jsontpl_scope scope,
         size_t *offset,
         autostr *output);
-
-#undef verify_cleanup
-#define verify_cleanup
-static int valid_name(json_t *context, autostr *name, autostr *full_name)
-{
-    verify(name->len, "empty name");
-    verify(json_object_get(context, name->ptr) != NULL,
-        "unknown name %s", full_name->ptr);
-    verify_return();
-}
-
-#undef verify_cleanup
-#define verify_cleanup
-static int stringify_json(json_t *value, autostr *full_name, autostr *out)
-{
-    char *number;
-    
-    switch (json_typeof(value)) {
-        
-        case JSON_NULL:
-            autostr_append(out, "null");
-            break;
-        
-        case JSON_FALSE:
-            autostr_append(out, "false");
-            break;
-        
-        case JSON_TRUE:
-            autostr_append(out, "true");
-            break;
-        
-        case JSON_STRING:
-            autostr_append(out, json_string_value(value));
-            break;
-        
-        case JSON_INTEGER:
-        case JSON_REAL:
-            number = json_dumps(value, JSON_ENCODE_ANY);
-            autostr_append(out, number);
-            free(number);
-            break;
-        
-        default:
-            verify_fail("cannot stringify %s", full_name->ptr);
-    }
-    
-    verify_return();
-}
-
-#undef verify_cleanup
-#define verify_cleanup free(clone_str)
-static int clone_json(json_t *json, json_t **clone)
-{
-    json_error_t error;
-    char *clone_str = json_dumps(json, 0);
-    *clone = json_loads(clone_str, 0, &error);
-    verify(*clone != NULL, JSONTPL_JSON_ERROR, error.text, error.line, error.column);
-    verify_return();
-}
 
 #undef verify_cleanup
 #define verify_cleanup
@@ -177,33 +114,13 @@ static int parse_identifier(
 }
 
 #undef verify_cleanup
-#define verify_cleanup autostr_free(&filter)
-static int parse_filter(
-        char *template,
-        size_t *offset,
-        json_t **obj)
+#define verify_cleanup autostr_free(&filter_name)
+int parse_filter(char *template, size_t *offset, json_t **obj)
 {
-    autostr *filter = autostr_new();
+    autostr *filter_name = autostr_new();
     
-    verify_call(parse_identifier(template, offset, filter));
-    
-    if (!autostr_cmp(filter, "upper") || !autostr_cmp(filter, "lower")) {
-        char upper = (filter->ptr[0] == 'u');
-        verify(json_is_string(*obj), JSONTPL_FILTER_ERROR, filter->ptr, "string");
-        autostr *transformed = autostr_apply(autostr_append(autostr_new(),
-            json_string_value(*obj)), upper ? toupper : tolower);
-        *obj = json_string(autostr_value(transformed));
-        autostr_free(&transformed);
-    
-    } else if (!autostr_cmp(filter, "count")) {
-        verify(json_is_array(*obj) || json_is_object(*obj),
-            JSONTPL_FILTER_ERROR, filter->ptr, "array or object");
-        *obj = json_integer(json_is_array(*obj) ?
-            json_array_size(*obj) : json_object_size(*obj));
-    
-    } else {
-        verify_fail("unknown filter '%s'", filter->ptr);
-    }
+    verify_call(parse_identifier(template, offset, filter_name));
+    verify_call(jsontpl_filter(filter_name, obj));
     
     verify_return();
 }
@@ -292,7 +209,7 @@ static int parse_value(
         verify_call(parse_name(template, context, offset, full_name, &obj));
         verify_json_not_null(obj, full_name);
         verify_call(parse_seq(template, offset, "=}"));
-        verify_call(stringify_json(obj, full_name, output));
+        verify_call(stringify_json(obj, full_name, scope, output));
     }
     
     verify_return();
@@ -597,7 +514,7 @@ static int parse_scope(
                         break;
                     
                     default:
-                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
+                        output_push(output, c, scope);
                 }
                 break;
             
@@ -609,18 +526,18 @@ static int parse_scope(
                     case '{':
                     case '}':
                     case '\\':
-                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, next);
+                        output_push(output, next, scope);
                         *offset += 2;
                         break;
                     default:
-                        if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
+                        output_push(output, c, scope);
                         *offset += 1;
                 }
                 break;
             
             default:
                 /* Write all other characters to the output buffer. */
-                if (!(scope & SCOPE_DISCARD)) autostr_push(output, c);
+                output_push(output, c, scope);
                 *offset += 1;
         }
     }
@@ -752,6 +669,3 @@ int main(int argc, char *argv[])
     return rtn;
 }
 #endif
-
-#undef verify_json_not_null
-#undef isident
