@@ -41,6 +41,10 @@ Introductory example
 Values
 ------
 
+    {= name =}
+    {= object_name.name =}
+    {= name | filter =}
+
 Values from the JSON input can be substituted into the document by enclosing
 the value's name in `{=` and `=}` tokens.  Like JavaScript, objects can be
 descended into using a `.`, as in `author.name` in the above example.  Each
@@ -52,7 +56,10 @@ the filters currently available:
 
 * `upper`: transform a string to uppercase
 * `lower`: transform a string to lowercase
+* `identifier`: transform a string to a valid identifier (replaces invalid
+  characters with underscores)
 * `count`: get the number of items in an array or object
+* `english`: turn an array `[A, B, C]` into a string of the form `A, B, and C`
 
 `if` blocks
 -----------
@@ -116,9 +123,9 @@ Grammar reference
     comment_block
                 ::= comment template end
     block       ::= if_block | foreach_block | comment_block
-    escape      ::= "\{" | "\\"
+    escape      ::= "\{" | "\}" | "\\"
     literal     ::= escape | <any character>
-    template    ::= (block | value | literal)*
+    template    ::= (value | block | literal)*
 
 Literal curly braces do not need to be escaped unless they would otherwise be
 interpreted as the start of a block or value.  Likewise, literal backslashes do
