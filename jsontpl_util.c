@@ -11,7 +11,7 @@ int jsontpl_toidentifier(int c)
 
 #undef verify_cleanup
 #define verify_cleanup
-int valid_name(json_t *context, autostr *name, autostr *full_name)
+int valid_name(json_t *context, autostr_t *name, autostr_t *full_name)
 {
     verify(name->len, "empty name");
     verify(json_object_get(context, name->ptr) != NULL,
@@ -21,7 +21,7 @@ int valid_name(json_t *context, autostr *name, autostr *full_name)
 
 #undef verify_cleanup
 #define verify_cleanup
-int output_append(autostr *output, const char *append, jsontpl_scope scope)
+int output_append(autostr_t *output, const char *append, jsontpl_scope scope)
 {
     if (!(scope & SCOPE_DISCARD)) {
         autostr_append(output, append);
@@ -31,7 +31,7 @@ int output_append(autostr *output, const char *append, jsontpl_scope scope)
 
 #undef verify_cleanup
 #define verify_cleanup
-int output_push(autostr *output, char c, jsontpl_scope scope)
+int output_push(autostr_t *output, char c, jsontpl_scope scope)
 {
     if (!(scope & SCOPE_DISCARD)) {
         autostr_push(output, c);
@@ -43,9 +43,9 @@ int output_push(autostr *output, char c, jsontpl_scope scope)
 #define verify_cleanup
 int stringify_json(
         json_t *value,
-        autostr *full_name,
+        autostr_t *full_name,
         jsontpl_scope scope,
-        autostr *output)
+        autostr_t *output)
 {
     char *number;
     

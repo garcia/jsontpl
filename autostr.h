@@ -15,68 +15,68 @@ typedef struct {
     size_t size;
     size_t len;
     char *ptr;
-} autostr;
+} autostr_t;
 
 /**
  * Allocate and return a new autostr instance.
  */
-autostr *autostr_new();
+autostr_t *autostr();
 
 /**
  * Deallocate the instance and set the pointer to NULL.
  */
-void autostr_free(autostr **instance);
+void autostr_free(autostr_t **instance);
 
 /**
  * Get the instance's string.
  */
-const char *autostr_value(autostr *instance);
+const char *autostr_value(autostr_t *instance);
 
 /**
  * Get the length of the string. This operation runs in O(1) time.
  */
-int autostr_len(autostr *instance);
+int autostr_len(autostr_t *instance);
 
 /**
  * If instance points to a NULL pointer, assign it to a newly allocated
  * autostr. Otherwise, reset the existing instance to a blank string.
  */
-autostr *autostr_recycle(autostr **instance);
+autostr_t *autostr_recycle(autostr_t **instance);
 
 /**
  * Append a string to the instance.
  */
-autostr *autostr_append(autostr *instance, const char *append);
+autostr_t *autostr_append(autostr_t *instance, const char *append);
 
 /**
  * Append a single char to the instance.
  */
-autostr *autostr_push(autostr *instance, char push);
+autostr_t *autostr_push(autostr_t *instance, char push);
 
 /**
  * Trim whitespace from the start of the string.
  */
-autostr *autostr_ltrim(autostr *instance);
+autostr_t *autostr_ltrim(autostr_t *instance);
 
 /**
  * Trim whitespace from the end of the string.
  */
-autostr *autostr_rtrim(autostr *instance);
+autostr_t *autostr_rtrim(autostr_t *instance);
 
 /**
  * Trim whitespace from both sides of the string.
  */
-autostr *autostr_trim(autostr *instance);
+autostr_t *autostr_trim(autostr_t *instance);
 
 /**
  * Compare the instance's value to the other value.
  */
-int autostr_cmp(autostr *instance, const char *other);
+int autostr_cmp(autostr_t *instance, const char *other);
 
 /**
  * Replace each character `c` in the string with the return value of func(c).
  * Providing tolower or toupper as the function yields the expected result.
  */
-autostr *autostr_apply(autostr *instance, int func(int));
+autostr_t *autostr_apply(autostr_t *instance, int func(int));
 
 #endif

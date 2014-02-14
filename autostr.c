@@ -5,7 +5,7 @@
 #include "autostr.h"
 
 /* Used by autostr_new and autostr_recycle to empty a new or existing string. */
-static void autostr_empty(autostr *instance, char reallocate)
+static void autostr_empty(autostr_t *instance, char reallocate)
 {
     instance->size = AUTOSTR_CHUNK;
     instance->len = 0;
@@ -16,7 +16,7 @@ static void autostr_empty(autostr *instance, char reallocate)
 }
 
 /* Used by autostr_*trim to reduce the allocated space, if possible. */
-static void autostr_shrink(autostr *instance)
+static void autostr_shrink(autostr_t *instance)
 {
     size_t new_size = instance->size;
     while (new_size - AUTOSTR_CHUNK > instance->len) {
@@ -32,14 +32,14 @@ static void autostr_shrink(autostr *instance)
 /* Public functions: */
 
 
-autostr *autostr_new()
+autostr_t *autostr()
 {
-    autostr *instance = malloc(sizeof(autostr));
+    autostr_t *instance = malloc(sizeof(autostr_t));
     autostr_empty(instance, 0);
     return instance;
 }
 
-void autostr_free(autostr **instance)
+void autostr_free(autostr_t **instance)
 {
     if (*instance) {
         free((*instance)->ptr);
@@ -48,28 +48,28 @@ void autostr_free(autostr **instance)
     }
 }
 
-const char *autostr_value(autostr *instance)
+const char *autostr_value(autostr_t *instance)
 {
     return instance->ptr;
 }
 
-int autostr_len(autostr *instance)
+int autostr_len(autostr_t *instance)
 {
     return instance->len;
 }
 
-autostr *autostr_recycle(autostr **instance)
+autostr_t *autostr_recycle(autostr_t **instance)
 {
     if (*instance) {
         autostr_empty(*instance, 1);
     } else {
-        *instance = autostr_new();
+        *instance = autostr();
     }
     
     return *instance;
 }
 
-autostr *autostr_append(autostr *instance, const char *append)
+autostr_t *autostr_append(autostr_t *instance, const char *append)
 {
     size_t new_len = instance->len + strlen(append);
     char reallocate = 0;
@@ -86,7 +86,7 @@ autostr *autostr_append(autostr *instance, const char *append)
     return instance;
 }
 
-autostr *autostr_push(autostr *instance, char push)
+autostr_t *autostr_push(autostr_t *instance, char push)
 {
     char append[2] = {push, '\0'};
     autostr_append(instance, append);
@@ -94,7 +94,7 @@ autostr *autostr_push(autostr *instance, char push)
     return instance;
 }
 
-autostr *autostr_ltrim(autostr *instance)
+autostr_t *autostr_ltrim(autostr_t *instance)
 {
     size_t i;
     for (i = 0; isspace(instance->ptr[i]); i++) {}
@@ -110,7 +110,7 @@ autostr *autostr_ltrim(autostr *instance)
     return instance;
 }
 
-autostr *autostr_rtrim(autostr *instance)
+autostr_t *autostr_rtrim(autostr_t *instance)
 {
     size_t i;
     for (i = instance->len; i && isspace(instance->ptr[i - 1]); i--) {}
@@ -123,17 +123,17 @@ autostr *autostr_rtrim(autostr *instance)
     return instance;
 }
 
-autostr *autostr_trim(autostr *instance)
+autostr_t *autostr_trim(autostr_t *instance)
 {
     return autostr_ltrim(autostr_rtrim(instance));
 }
 
-int autostr_cmp(autostr *instance, const char *other)
+int autostr_cmp(autostr_t *instance, const char *other)
 {
     return strcmp(instance->ptr, other);
 }
 
-autostr *autostr_apply(autostr *instance, int func(int))
+autostr_t *autostr_apply(autostr_t *instance, int func(int))
 {
     size_t i;
     for (i = 0; i < instance->len; i++) {

@@ -8,6 +8,7 @@
 #include "jsontpl.h"
 
 #define JSONTPL_JSON_ERROR "invalid JSON: %s (line %d, column %d)\n"
+#define JSONTPL_BLOCK_HINT "%s block at line %d, column %d"
 
 #define isident(c) (isalnum(c) || (c) == '_')
 #define verify_json_not_null(obj, full_name) \
@@ -32,14 +33,14 @@ typedef enum {
 
 int jsontpl_toidentifier(int c);
 
-int valid_name(json_t *context, autostr *name, autostr *full_name);
-int output_append(autostr *output, const char *append, jsontpl_scope scope);
-int output_push(autostr *output, char c, jsontpl_scope scope);
+int valid_name(json_t *context, autostr_t *name, autostr_t *full_name);
+int output_append(autostr_t *output, const char *append, jsontpl_scope scope);
+int output_push(autostr_t *output, char c, jsontpl_scope scope);
 int stringify_json(
         json_t *value,
-        autostr *full_name,
+        autostr_t *full_name,
         jsontpl_scope scope,
-        autostr *output);
+        autostr_t *output);
 int clone_json(json_t *json, json_t **clone);
 
 #endif // JSONTPL_UTIL_H

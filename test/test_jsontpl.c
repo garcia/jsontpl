@@ -13,6 +13,9 @@ typedef struct {
 } test_case;
 
 test_case tests[] = {
+    
+    /* Literals */
+    
        {"literal output",
         "{}",
         "ABCEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz\t0123456789\n`~!@#$%^&*()-_=+|[{]};:'\",<.>/?",
@@ -25,6 +28,9 @@ test_case tests[] = {
         "{}",
         "\\\\ \\{% %\\} \\{= =\\} \\{\\}",
         "\\ {% %} {= =} {}"
+    
+    /* Values */
+    
     }, {"basic values",
         "{\"alpha\": null, \"beta\": false, \"gamma\": true, \"delta\": 42, \"epsilon\": 3.125, \"zeta\": \"foobar\"}",
         "{= alpha =} {= beta =} {= gamma =} {= delta =} {= epsilon =} {= zeta =}",
@@ -33,6 +39,17 @@ test_case tests[] = {
         "{\"alpha\": null, \"beta\": false, \"gamma\": true, \"delta\": 42, \"epsilon\": 3.125, \"zeta\": \"foobar\"}",
         "{= alpha=} {=beta=}{=gamma=} {=delta =} {= epsilon =} {=\tzeta\t=}",
         "null falsetrue 42 3.125 foobar"
+    }, {"variable names",
+        "{\"alpha\": null, \"beta\": false, \"gamma\": true, \"delta\": 42, \"names\": [\"alpha\", \"beta\", \"gamma\", \"delta\"]}",
+        "{% foreach names: name %}{= {name} =} {% end %}",
+        "null false true 42 "
+    }, {"variable object keys",
+        "{\"obj\": {\"alpha\": null, \"beta\": false, \"gamma\": true, \"delta\": 42}, \"names\": [\"alpha\", \"beta\", \"gamma\", \"delta\"]}",
+        "{% foreach names: name %}{= obj.{name} =} {% end %}",
+        "null false true 42 "
+    
+    /* Blocks */
+    
     }, {"foreach array",
         "{\"array\": [123, 456, 789]}",
         "Array contents: [ {% foreach array: a %}{= a =} {% end %}]",
@@ -73,6 +90,44 @@ test_case tests[] = {
         "{\"alpha\": true}",
         "({% if alpha %}Alpha{% if beta %}Beta{% else %}Alpha{% end %}{% end %} {% if beta %}Beta{% if alpha %}Alpha{% else %}Beta{% end %}{% end %})",
         "(AlphaAlpha )"
+    
+    /* Filters */
+    
+    }, {"upper filter",
+        "{\"string\": \"This is a JSON string.\"}",
+        "{= string | upper =}",
+        "THIS IS A JSON STRING."
+    }, {"lower filter",
+        "{\"string\": \"This is a JSON string.\"}",
+        "{= string | lower =}",
+        "this is a json string."
+    }, {"identifier filter",
+        "{\"string\": \"This is a string.\"}",
+        "{= string | identifier =}",
+        "This_is_a_string_"
+    }, {"count filter",
+        "{\"array\": [1, 2, 3], \"object\": {\"foo\": \"bar\", \"baz\": \"quux\"}}",
+        "{= array | count =} {= object | count =}",
+        "3 2"
+    }, {"english filter",
+        "{\"empty\": [], \"one\": [\"alpha\"], \"two\": [\"alpha\", \"beta\"], \"three\": [\"alpha\", \"beta\", \"gamma\"], \"four\": [\"alpha\", \"beta\", \"gamma\", \"delta\"]}",
+        "{= empty | english =}; {= one | english =}; {= two | english =}; {= three | english =}; {= four | english =}",
+        "; alpha; alpha and beta; alpha, beta, and gamma; alpha, beta, gamma, and delta"
+    }, {"js filter",
+        // TODO: array / object tests
+        "{\"alpha\": null, \"beta\": false, \"gamma\": true, \"delta\": 42, \"epsilon\": 3.125, \"zeta\": \"foobar\"}",
+        "{= alpha | js =} {= beta | js =} {= gamma | js =} {= delta | js =} {= epsilon | js =} {= zeta | js =}",
+        "null false true 42 3.125 \"foobar\""
+    }, {"c filter",
+        "{\"alpha\": null, \"beta\": false, \"gamma\": true, \"delta\": 42, \"epsilon\": 3.125, \"zeta\": \"foobar\"}",
+        "{= alpha | c =} {= beta | c =} {= gamma | c =} {= delta | c =} {= epsilon | c =} {= zeta | c =}",
+        "NULL 0 1 42 3.125 \"foobar\""
+    }, {"py filter",
+        "{\"alpha\": null, \"beta\": false, \"gamma\": true, \"delta\": 42, \"epsilon\": 3.125, \"zeta\": \"foobar\"}",
+        "{= alpha | py =} {= beta | py =} {= gamma | py =} {= delta | py =} {= epsilon | py =} {= zeta | py =}",
+        "None False True 42 3.125 \"foobar\""
+    
+    /* Sentinel value - keep this last */
     }, {NULL}
 };
 

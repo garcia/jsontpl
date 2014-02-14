@@ -42,24 +42,9 @@ Values
 ------
 
     {= name =}
-    {= object_name.name =}
-    {= name | filter =}
 
 Values from the JSON input can be substituted into the document by enclosing
-the value's name in `{=` and `=}` tokens.  Like JavaScript, objects can be
-descended into using a `.`, as in `author.name` in the above example.  Each
-component of a value name can only contain alphanumeric characters and
-underscores.
-
-Values can also be filtered by adding a `|` and a filter name.  These are
-the filters currently available:
-
-* `upper`: transform a string to uppercase
-* `lower`: transform a string to lowercase
-* `identifier`: transform a string to a valid identifier (replaces invalid
-  characters with underscores)
-* `count`: get the number of items in an array or object
-* `english`: turn an array `[A, B, C]` into a string of the form `A, B, and C`
+a [name](#names) in `{=` and `=}` tokens.
 
 `if` blocks
 -----------
@@ -101,13 +86,50 @@ accessed through value substitution.
 `comment` blocks are not rendered in the output file.  They behave like an
 `if` block that is always untrue (and cannot have an `else` block).
 
+Names
+-----
+
+    name
+    object_name.name
+    name | filter
+    {string_name}
+    object_name.{string_name}.name
+
+Names are used in the constructs above to retrieve values from the JSON input.
+Like JavaScript, objects can be descended into using a `.`, as in `author.name`
+in the example at the top of the page.  Each component of a value name can only
+contain alphanumeric characters and underscores.
+
+**Filters** are specified by adding a `|` and a filter name.  Filters are
+unary: they take one value and produce another value.  These are the filters
+currently available:
+
+* `upper`: transform a string to uppercase
+* `lower`: transform a string to lowercase
+* `identifier`: transform a string to a valid identifier (replaces invalid
+  characters with underscores)
+* `count`: get the number of items in an array or object
+* `english`: turn an array `[A, B, C]` into a string of the form `A, B, and C`
+* `js`: produce a valid JavaScript literal (this simply JSON-encodes the value)
+* `c`: produce a valid C literal from anything but an array or object
+* `py`: produce a valid Python literal from anything but an array or object
+
+**Variable names** are denoted by enclosing the name of a string value in curly
+braces.  For example, given a JSON object `{"foo": 1, "bar": "foo"}`, the names
+`foo` and `{bar}` are equivalent.  Variable names can be used anywhere in a
+name (except as a filter) and can operate recursively, but at the cost of
+readability.  Use them sparingly.
 
 Grammar reference
 -----------------
 
     identifier  ::= ("A"..."Z" | "a"..."z" | "0"..."9" | "_")+
-    raw_name    ::= identifier | raw_name "." identifier
-    name        ::= raw_name | raw_name "|" identifier
+    name_component
+                ::= identifier | "{" name "}"
+    raw_name    ::= name_component | raw_name "." name_component
+    filter      ::= "upper" | "lower" | "identifier" | "count" | "english"
+                  | "js" | "c" | "py"
+    name        ::= raw_name | raw_name "|" filter
     value       ::= "{=" name "=}"
     block_start ::= "{%"
     block_end   ::= "%}"
