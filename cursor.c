@@ -14,6 +14,7 @@ cursor_t *cursor(const char *buffer)
     return c;
 }
 
+#if !(CURSOR_MACROS)
 size_t cursor_offset(cursor_t *c)
 {
     return c->offset;
@@ -33,6 +34,7 @@ char cursor_peek(cursor_t *c)
 {
     return c->buffer[c->offset];
 }
+#endif // !(CURSOR_MACROS)
 
 char cursor_read(cursor_t *c)
 {
