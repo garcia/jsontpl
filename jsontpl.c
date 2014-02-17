@@ -260,7 +260,7 @@ static int parse_value(
 
 #undef verify_cleanup
 #define verify_cleanup do {                                                 \
-    json_decref(array_context);                                             \
+    json_decref(old_value);                                                 \
     autostr_free(&value);                                                   \
 } while (0)
 /**
@@ -274,7 +274,7 @@ static int parse_foreach_array(
         autostr_t *output)
 {
     cursor_t starting_cursor;
-    json_t *array_context = NULL;
+    json_t *old_value = NULL;
     autostr_t *value = autostr();
     // Borrowed references; no need to free during cleanup]
     size_t array_index;
@@ -289,20 +289,24 @@ static int parse_foreach_array(
     }
     
     starting_cursor = *c;
-    verify_call(clone_json(context, &array_context));
+    old_value = json_object_get(context, value->ptr);
+    json_incref(old_value);
     
     json_array_foreach(array, array_index, array_value) {
-        json_object_set(array_context, value->ptr, array_value);
+        json_object_set(context, value->ptr, array_value);
         *c = starting_cursor;
-        verify_call(parse_template(c, array_context, SCOPE_FOREACH, output));
+        verify_call(parse_template(c, context, SCOPE_FOREACH, output));
     }
+    
+    json_object_set(context, value->ptr, old_value);
     
     verify_return();
 }
 
 #undef verify_cleanup
 #define verify_cleanup do {                                                 \
-    json_decref(object_context);                                            \
+    json_decref(old_key);                                                   \
+    json_decref(old_value);                                                 \
     autostr_free(&key);                                                     \
     autostr_free(&value);                                                   \
 } while (0)
@@ -317,7 +321,8 @@ static int parse_foreach_object(
         autostr_t *output)
 {
     cursor_t starting_cursor;
-    json_t *object_context = NULL;
+    json_t *old_key = NULL,
+           *old_value = NULL;
     autostr_t *key = autostr(),
             *value = autostr();
     // Borrowed references; no need to free during cleanup
@@ -335,14 +340,20 @@ static int parse_foreach_object(
     }
     
     starting_cursor = *c;
-    verify_call(clone_json(context, &object_context));
+    old_key = json_object_get(context, key->ptr);
+    old_value = json_object_get(context, value->ptr);
+    json_incref(old_key);
+    json_incref(old_value);
     
     json_object_foreach(object, object_key, object_value) {
-        json_object_set_new(object_context, key->ptr, json_string(object_key));
-        json_object_set(object_context, value->ptr, object_value);
+        json_object_set_new(context, key->ptr, json_string(object_key));
+        json_object_set(context, value->ptr, object_value);
         *c = starting_cursor;
-        verify_call(parse_template(c, object_context, SCOPE_FOREACH, output));
+        verify_call(parse_template(c, context, SCOPE_FOREACH, output));
     }
+    
+    json_object_set(context, key->ptr, old_key);
+    json_object_set(context, value->ptr, old_value);
     
     verify_return();
 }
@@ -615,7 +626,10 @@ static int valid_root(json_t *root, json_error_t error)
 }
 
 #undef verify_cleanup
-#define verify_cleanup free(output)
+#define verify_cleanup do {                                                 \
+    free(output);                                                           \
+    free(c);                                                                \
+} while (0)
 static int jsontpl_jansson(json_t *root, char *template, char **out)
 {
     autostr_t *output = autostr();

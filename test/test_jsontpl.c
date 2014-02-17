@@ -58,6 +58,10 @@ test_case tests[] = {
         "{\"array\": []}",
         "Array contents: [ {% foreach array: a %}{= a =} {% end %}]",
         "Array contents: [ ]"
+    }, {"foreach array with shadowed value",
+        "{\"array\": [123, 456, 789], \"a\": \"|\"}",
+        "Array contents: {= a =} {% foreach array: a %}{= a =} {% end %}{= a =}",
+        "Array contents: | 123 456 789 |"
     }, {"foreach object",
         "{\"object\": {\"alpha\": null, \"delta\": 42, \"zeta\": \"foobar\"}}",
         "Object contents: \\{ {% foreach object: k -> v %}{= k =}->{= v =} {% end %}\\}",
@@ -66,6 +70,10 @@ test_case tests[] = {
         "{\"object\": {}}",
         "Object contents: \\{ {% foreach object: k -> v %}{= k =}->{= v =} {% end %}\\}",
         "Object contents: { }"
+    }, {"foreach object with shadowed value",
+        "{\"object\": {\"alpha\": null, \"delta\": 42, \"zeta\": \"foobar\"}, \"k\": \"<\", \"v\": \">\"}",
+        "Object contents: {= k =}{= v =} {% foreach object: k -> v %}{= k =}->{= v =} {% end %}{= k =}{= v =}",
+        "Object contents: <> alpha->null delta->42 zeta->foobar <>"
     }, {"if false",
         "{\"one\": null, \"two\": false, \"three\": 0, \"four\": 0.0, \"five\": \"\", \"six\": [], \"seven\": {}}",
         "{% if zero %}{= zero =}{% end %}{% if one %}{= one =}{% end %}{% if two %}{= two =}{% end %}{% if three %}{= three =}{% end %}{% if four %}{= four =}{% end %}{% if five %}{= five =}{% end %}{% if six %}{= six =}{% end %}{% if seven %}{= seven =}{% end %}",
