@@ -2,6 +2,7 @@
 
 #include "autostr.h"
 #include "jsontpl_util.h"
+#include "output.h"
 #include "verify.h"
 
 int jsontpl_toidentifier(int c)
@@ -21,56 +22,32 @@ int valid_name(json_t *context, autostr_t *name, autostr_t *full_name)
 
 #undef verify_cleanup
 #define verify_cleanup
-int output_append(autostr_t *output, const char *append, jsontpl_scope scope)
-{
-    if (!(scope & SCOPE_DISCARD)) {
-        autostr_append(output, append);
-    }
-    verify_return();
-}
-
-#undef verify_cleanup
-#define verify_cleanup
-int output_push(autostr_t *output, char c, jsontpl_scope scope)
-{
-    if (!(scope & SCOPE_DISCARD)) {
-        autostr_push(output, c);
-    }
-    verify_return();
-}
-
-#undef verify_cleanup
-#define verify_cleanup
-int stringify_json(
-        json_t *value,
-        autostr_t *full_name,
-        jsontpl_scope scope,
-        autostr_t *output)
+int stringify_json(json_t *value, autostr_t *full_name, output_t *output)
 {
     char *number;
     
     switch (json_typeof(value)) {
         
         case JSON_NULL:
-            output_append(output, "null", scope);
+            output_append(output, "null");
             break;
         
         case JSON_FALSE:
-            output_append(output, "false", scope);
+            output_append(output, "false");
             break;
         
         case JSON_TRUE:
-            output_append(output, "true", scope);
+            output_append(output, "true");
             break;
         
         case JSON_STRING:
-            output_append(output, json_string_value(value), scope);
+            output_append(output, json_string_value(value));
             break;
         
         case JSON_INTEGER:
         case JSON_REAL:
             number = json_dumps(value, JSON_ENCODE_ANY);
-            output_append(output, number, scope);
+            output_append(output, number);
             free(number);
             break;
         

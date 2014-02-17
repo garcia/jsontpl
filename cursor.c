@@ -14,26 +14,16 @@ cursor_t *cursor(const char *buffer)
     return c;
 }
 
+void cursor_free(cursor_t **c)
+{
+    if (*c) free(*c);
+}
+
 #if !(CURSOR_MACROS)
-size_t cursor_offset(cursor_t *c)
-{
-    return c->offset;
-}
-
-size_t cursor_line(cursor_t *c)
-{
-    return c->line;
-}
-
-size_t cursor_column(cursor_t *c)
-{
-    return c->column;
-}
-
-char cursor_peek(cursor_t *c)
-{
-    return c->buffer[c->offset];
-}
+size_t cursor_offset(cursor_t *c) { return c->offset; }
+size_t cursor_line(cursor_t *c) { return c->line; }
+size_t cursor_column(cursor_t *c) { return c->column; }
+char cursor_peek(cursor_t *c) { return c->buffer[c->offset]; }
 #endif // !(CURSOR_MACROS)
 
 char cursor_read(cursor_t *c)

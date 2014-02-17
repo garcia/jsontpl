@@ -6,6 +6,7 @@
 
 #include "autostr.h"
 #include "jsontpl.h"
+#include "output.h"
 
 #define JSONTPL_JSON_ERROR "invalid JSON: %s (line %d, column %d)\n"
 #define JSONTPL_BLOCK_HINT "%s block at line %d, column %d"
@@ -31,16 +32,11 @@ typedef enum {
     SCOPE_FORCE_DISCARD = 0x20,
 } jsontpl_scope;
 
+// This actually returns an int, as opposed to "zero or an error code"
 int jsontpl_toidentifier(int c);
 
 int valid_name(json_t *context, autostr_t *name, autostr_t *full_name);
-int output_append(autostr_t *output, const char *append, jsontpl_scope scope);
-int output_push(autostr_t *output, char c, jsontpl_scope scope);
-int stringify_json(
-        json_t *value,
-        autostr_t *full_name,
-        jsontpl_scope scope,
-        autostr_t *output);
+int stringify_json(json_t *value, autostr_t *full_name, output_t *output);
 int clone_json(json_t *json, json_t **clone);
 
 #endif // JSONTPL_UTIL_H

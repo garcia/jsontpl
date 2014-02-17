@@ -2,6 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(JSONTPL_MAIN) && defined(_WIN32)
+#include <io.h>
+#include <fcntl.h>
+#endif // defined(JSONTPL_MAIN) && defined(_WIN32)
+
 #include <jansson.h>
 
 #include "autostr.h"
@@ -9,6 +14,7 @@
 #include "jsontpl.h"
 #include "jsontpl_filter.h"
 #include "jsontpl_util.h"
+#include "output.h"
 #include "verify.h"
 
 /**
@@ -20,7 +26,7 @@ static int parse_template(
         cursor_t *c,
         json_t *context,
         jsontpl_scope scope,
-        autostr_t *output);
+        output_t *out);
 
 #undef verify_cleanup
 #define verify_cleanup
@@ -241,7 +247,7 @@ static int parse_value(
         cursor_t *c,
         json_t *context,
         jsontpl_scope scope,
-        autostr_t *output)
+        output_t *out)
 {
     json_t *obj = NULL;
     autostr_t *full_name = autostr();
@@ -252,7 +258,7 @@ static int parse_value(
         verify_call(parse_name(c, context, full_name, &obj));
         verify_json_not_null(obj, full_name);
         verify_call(parse_seq(c, "=}"));
-        verify_call(stringify_json(obj, full_name, scope, output));
+        verify_call(stringify_json(obj, full_name, out));
     }
     
     verify_return();
@@ -271,7 +277,7 @@ static int parse_foreach_array(
         cursor_t *c,
         json_t *context,
         json_t *array,
-        autostr_t *output)
+        output_t *out)
 {
     cursor_t starting_cursor;
     json_t *old_value = NULL;
@@ -284,7 +290,7 @@ static int parse_foreach_array(
     verify_call(parse_seq(c, "%}"));
     
     if (json_array_size(array) == 0) {
-        verify_call(parse_template(c, context, SCOPE_DISCARD, output));
+        verify_call(parse_template(c, context, SCOPE_DISCARD, out));
         verify_return();
     }
     
@@ -295,7 +301,7 @@ static int parse_foreach_array(
     json_array_foreach(array, array_index, array_value) {
         json_object_set(context, value->ptr, array_value);
         *c = starting_cursor;
-        verify_call(parse_template(c, context, SCOPE_FOREACH, output));
+        verify_call(parse_template(c, context, SCOPE_FOREACH, out));
     }
     
     json_object_set(context, value->ptr, old_value);
@@ -318,7 +324,7 @@ static int parse_foreach_object(
         cursor_t *c,
         json_t *context,
         json_t *object,
-        autostr_t *output)
+        output_t *out)
 {
     cursor_t starting_cursor;
     json_t *old_key = NULL,
@@ -335,7 +341,7 @@ static int parse_foreach_object(
     verify_call(parse_seq(c, "%}"));
     
     if (json_object_size(object) == 0) {
-        verify_call(parse_template(c, context, SCOPE_DISCARD, output));
+        verify_call(parse_template(c, context, SCOPE_DISCARD, out));
         verify_return();
     }
     
@@ -349,7 +355,7 @@ static int parse_foreach_object(
         json_object_set_new(context, key->ptr, json_string(object_key));
         json_object_set(context, value->ptr, object_value);
         *c = starting_cursor;
-        verify_call(parse_template(c, context, SCOPE_FOREACH, output));
+        verify_call(parse_template(c, context, SCOPE_FOREACH, out));
     }
     
     json_object_set(context, key->ptr, old_key);
@@ -370,7 +376,7 @@ static int parse_foreach_object(
 static int parse_foreach(
         cursor_t *c,
         json_t *context,
-        autostr_t *output)
+        output_t *out)
 {
     json_t *obj = NULL;
     autostr_t *full_name = autostr();
@@ -380,9 +386,9 @@ static int parse_foreach(
     verify_call(parse_seq(c, ":"));
     
     if (json_is_array(obj)) {
-        verify_call(parse_foreach_array(c, context, obj, output));
+        verify_call(parse_foreach_array(c, context, obj, out));
     } else if (json_is_object(obj)) {
-        verify_call(parse_foreach_object(c, context, obj, output));
+        verify_call(parse_foreach_object(c, context, obj, out));
     } else {
         verify_fail("foreach block requires an object or array");
     }
@@ -398,10 +404,10 @@ static int parse_foreach(
 static int parse_comment(
         cursor_t *c,
         json_t *context,
-        autostr_t *output)
+        output_t *out)
 {
     verify_call(parse_seq(c, "%}"));
-    verify_call(parse_template(c, context, SCOPE_DISCARD | SCOPE_FORCE_DISCARD, output));
+    verify_call(parse_template(c, context, SCOPE_DISCARD | SCOPE_FORCE_DISCARD, out));
     verify_return();
 }
 
@@ -417,7 +423,7 @@ static int parse_comment(
 static int parse_if(
         cursor_t *c,
         json_t *context,
-        autostr_t *output)
+        output_t *out)
 {
     char discard = 0;
     jsontpl_scope scope = SCOPE_IF;
@@ -468,7 +474,7 @@ static int parse_if(
     
     if (discard) scope |= SCOPE_DISCARD;
     
-    verify_call(parse_template(c, context, scope, output));
+    verify_call(parse_template(c, context, scope, out));
     
     verify_return();
 }
@@ -485,7 +491,7 @@ static int parse_block(
         cursor_t *c,
         json_t *context,
         jsontpl_scope scope,
-        autostr_t *output,
+        output_t *out,
         char *end)
 {
     *end = 0;
@@ -510,7 +516,7 @@ static int parse_block(
                 inner_scope |= SCOPE_DISCARD;
             }
             verify_call(parse_seq(c, "%}"));
-            verify_call(parse_template(c, context, inner_scope, output));
+            verify_call(parse_template(c, context, inner_scope, out));
             /* Unlike other blocks, else 'steals' the scope from its enclosing
                if block; when it ends, the if block ends as well. */
             *end = 1;
@@ -528,18 +534,18 @@ static int parse_block(
                the entire block should be silenced. */
             inner_scope |= SCOPE_FORCE_DISCARD;
         }
-        verify_call(parse_template(c, context, inner_scope, output));
+        verify_call(parse_template(c, context, inner_scope, out));
             
     } else if (strcmp(block_type->ptr, "foreach") == 0) {
-        verify_call_hint(parse_foreach(c, context, output),
+        verify_call_hint(parse_foreach(c, context, out),
             JSONTPL_BLOCK_HINT, "foreach", line, column);
         
     } else if (strcmp(block_type->ptr, "if") == 0) {
-        verify_call_hint(parse_if(c, context, output),
+        verify_call_hint(parse_if(c, context, out),
             JSONTPL_BLOCK_HINT, "if", line, column);
         
     } else if (strcmp(block_type->ptr, "comment") == 0) {
-        verify_call_hint(parse_comment(c, context, output),
+        verify_call_hint(parse_comment(c, context, out),
             JSONTPL_BLOCK_HINT, "comment", line, column);
         
     } else {
@@ -550,14 +556,17 @@ static int parse_block(
 }
 
 #undef verify_cleanup
-#define verify_cleanup
+#define verify_cleanup output_set_write(out, write_old)
 static int parse_template(
         cursor_t *c,
         json_t *context,
         jsontpl_scope scope,
-        autostr_t *output)
+        output_t *out)
 {
     char ch, end;
+    char write_old = output_get_write(out);
+    
+    output_set_write(out, !(scope & SCOPE_DISCARD));
     
     while ((ch = cursor_read(c)) != '\0') {
         /* Useful for debugging:
@@ -571,12 +580,12 @@ static int parse_template(
                     
                     case '=':
                         cursor_read(c);
-                        verify_call(parse_value(c, context, scope, output));
+                        verify_call(parse_value(c, context, scope, out));
                         break;
                     
                     case '%':
                         cursor_read(c);
-                        verify_call(parse_block(c, context, scope, output, &end));
+                        verify_call(parse_block(c, context, scope, out, &end));
                         if (end) {
                             verify(scope != SCOPE_FILE, "unmatched block terminator");
                             verify_return();
@@ -584,7 +593,7 @@ static int parse_template(
                         break;
                     
                     default:
-                        output_push(output, ch, scope);
+                        output_push(out, ch);
                 }
                 break;
             
@@ -596,16 +605,16 @@ static int parse_template(
                     case '{':
                     case '}':
                     case '\\':
-                        output_push(output, cursor_read(c), scope);
+                        output_push(out, cursor_read(c));
                         break;
                     default:
-                        output_push(output, ch, scope);
+                        output_push(out, ch);
                 }
                 break;
             
             default:
                 /* Write all other characters to the output buffer. */
-                output_push(output, ch, scope);
+                output_push(out, ch);
         }
     }
     
@@ -626,19 +635,14 @@ static int valid_root(json_t *root, json_error_t error)
 }
 
 #undef verify_cleanup
-#define verify_cleanup do {                                                 \
-    free(output);                                                           \
-    free(c);                                                                \
-} while (0)
-static int jsontpl_jansson(json_t *root, char *template, char **out)
+#define verify_cleanup free(c)
+static int jsontpl_jansson(json_t *root, char *template, output_t *out)
 {
-    autostr_t *output = autostr();
     cursor_t *c = cursor(template);
     
-    verify_call_hint(parse_template(c, root, SCOPE_FILE, output),
+    verify_call_hint(parse_template(c, root, SCOPE_FILE, out),
         "reached line %d, column %d", cursor_line(c), cursor_column(c));
     
-    *out = output->ptr;
     verify_return();
 }
 
@@ -647,34 +651,45 @@ static int jsontpl_jansson(json_t *root, char *template, char **out)
 
 
 #undef verify_cleanup
-#define verify_cleanup json_decref(root)
-int jsontpl_string(char *json, char *template, char **out)
+#define verify_cleanup do {                                                 \
+    json_decref(root);                                                      \
+    output_free(&out);                                                      \
+} while (0)
+    
+int jsontpl_string(char *json, char *template, char **output)
 {
-    json_t *root = NULL;
     json_error_t error;
+    json_t *root = NULL;
+    output_t *out = NULL;
     
     // Load JSON object from string
     root = json_loads(json, JSON_REJECT_DUPLICATES, &error);
-    verify_call(valid_root(root, error));    
+    verify_call(valid_root(root, error)); 
     
+    out = output_str(autostr());
     verify_call(jsontpl_jansson(root, template, out));
+    *output = malloc(autostr_len(output_get_str(out)) + 1);
+    strcpy(*output, autostr_value(output_get_str(out)));
     
     verify_return();
 }
 
 #undef verify_cleanup
 #define verify_cleanup do {                                                 \
+    if (template_file) fclose(template_file);                               \
     free(template);                                                         \
     json_decref(root);                                                      \
+    output_free(&out);                                                      \
 } while (0)
-int jsontpl_file(char *json_filename, char *template_filename, char **out)
+int jsontpl_file(char *json_filename, char *template_filename, FILE *outfile)
 {
-    char *template = NULL;
-    json_t *root = NULL;
-    FILE *template_file = NULL;
     json_error_t error;
     long filesize_ftell;
     size_t filesize_fread;
+    char *template = NULL;
+    json_t *root = NULL;
+    FILE *template_file = NULL;
+    output_t *out = NULL;
     
     // Load JSON object from file
     root = json_load_file(json_filename, JSON_REJECT_DUPLICATES, &error);
@@ -695,7 +710,8 @@ int jsontpl_file(char *json_filename, char *template_filename, char **out)
     template[filesize_ftell] = '\0';
     filesize_fread = fread(template, 1, filesize_ftell, template_file);
     verify_bare(filesize_ftell == filesize_fread);
-    fclose(template_file);
+    
+    out = output_file(outfile);
     
     verify_call(jsontpl_jansson(root, template, out));
     
@@ -712,23 +728,18 @@ int jsontpl_file(char *json_filename, char *template_filename, char **out)
 int main(int argc, char *argv[])
 {
     // Check arg count
-    if (argc != 4) {
+    if (argc != 3) {
         char *progname = "jsontpl";
         if (argc) progname = argv[0];
-        fprintf(stderr, "USAGE: %s json-file template-file output-file\n", progname);
+        fprintf(stderr, "USAGE: %s json-file template-file", progname);
         return 1;
     }
     
-    char *output = NULL;
-    int rtn = jsontpl_file(argv[1], argv[2], &output);
+    // Set stdout to binary mode to avoid double-newlines
+    #ifdef _WIN32
+    _setmode(1,_O_BINARY);
+    #endif // _WIN32
     
-    if (output) {
-        FILE *outfile = fopen(argv[3], "wb");
-        fwrite(output, 1, strlen(output), outfile);
-        fclose(outfile);
-        free(output);
-    }
-    
-    return rtn;
+    return jsontpl_file(argv[1], argv[2], stdout);
 }
 #endif

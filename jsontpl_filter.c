@@ -49,28 +49,28 @@ static int filter_count(json_t **obj)
 }
 
 #undef verify_cleanup
-#define verify_cleanup autostr_free(&english)
+#define verify_cleanup output_free(&english)
 static int filter_english(json_t **obj)
 {    
     size_t array_index;
     size_t array_size = json_array_size(*obj);
-    autostr_t *english = autostr();
+    output_t *english = output_str(autostr());
     json_t *array_value; /* borrowed reference */
     
     json_array_foreach(*obj, array_index, array_value) {
         if (array_index && array_index + 1 == array_size) {
-            autostr_append(english, "and ");
+            output_append(english, "and ");
         }
-        verify_call(stringify_json(array_value, NULL, SCOPE_FILE, english));
+        verify_call(stringify_json(array_value, NULL, english));
         if (array_index + 1 < array_size) {
             if (array_size > 2) {
-                autostr_push(english, ',');
+                output_push(english, ',');
             }
-            autostr_push(english, ' ');
+            output_push(english, ' ');
         }
     }
     
-    *obj = json_string(autostr_value(english));
+    *obj = json_string(autostr_value(output_get_str(english)));
     
     verify_return();
 }

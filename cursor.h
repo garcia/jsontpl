@@ -10,7 +10,12 @@ typedef struct {
     size_t column;
 } cursor_t;
 
+// Constructors / destructors:
+
 cursor_t *cursor(const char *buffer);
+void cursor_free(cursor_t **c);
+
+// Getters:
 
 #if CURSOR_MACROS
 #define cursor_offset(c) ((c)->offset)
@@ -24,6 +29,7 @@ size_t cursor_column(cursor_t *c);
 char cursor_peek(cursor_t *c);
 #endif // CURSOR_MACROS
 
+// Other methods:
 
 char cursor_read(cursor_t *c);
 void cursor_move(cursor_t *c, size_t chars);

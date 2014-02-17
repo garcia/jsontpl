@@ -25,58 +25,58 @@ autostr_t *autostr();
 /**
  * Deallocate the instance and set the pointer to NULL.
  */
-void autostr_free(autostr_t **instance);
+void autostr_free(autostr_t **a);
 
 /**
  * Get the instance's string.
  */
-const char *autostr_value(autostr_t *instance);
+const char *autostr_value(autostr_t *a);
 
 /**
  * Get the length of the string. This operation runs in O(1) time.
  */
-int autostr_len(autostr_t *instance);
+int autostr_len(autostr_t *a);
 
 /**
  * If instance points to a NULL pointer, assign it to a newly allocated
  * autostr. Otherwise, reset the existing instance to a blank string.
  */
-autostr_t *autostr_recycle(autostr_t **instance);
+autostr_t *autostr_recycle(autostr_t **a);
 
 /**
  * Append a string to the instance.
  */
-autostr_t *autostr_append(autostr_t *instance, const char *append);
+autostr_t *autostr_append(autostr_t *a, const char *append);
 
 /**
  * Append a single char to the instance.
  */
-autostr_t *autostr_push(autostr_t *instance, char push);
+autostr_t *autostr_push(autostr_t *a, char push);
 
 /**
  * Trim whitespace from the start of the string.
  */
-autostr_t *autostr_ltrim(autostr_t *instance);
+autostr_t *autostr_ltrim(autostr_t *a);
 
 /**
  * Trim whitespace from the end of the string.
  */
-autostr_t *autostr_rtrim(autostr_t *instance);
+autostr_t *autostr_rtrim(autostr_t *a);
 
 /**
  * Trim whitespace from both sides of the string.
  */
-autostr_t *autostr_trim(autostr_t *instance);
+autostr_t *autostr_trim(autostr_t *a);
 
 /**
  * Compare the instance's value to the other value.
  */
-int autostr_cmp(autostr_t *instance, const char *other);
+int autostr_cmp(autostr_t *a, const char *other);
 
 /**
  * Replace each character `c` in the string with the return value of func(c).
  * Providing tolower or toupper as the function yields the expected result.
  */
-autostr_t *autostr_apply(autostr_t *instance, int func(int));
+autostr_t *autostr_apply(autostr_t *a, int func(int));
 
 #endif
