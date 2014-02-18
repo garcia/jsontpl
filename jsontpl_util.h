@@ -37,6 +37,5 @@ int jsontpl_toidentifier(int c);
 
 int valid_name(json_t *context, autostr_t *name, autostr_t *full_name);
 int stringify_json(json_t *value, autostr_t *full_name, output_t *output);
-int clone_json(json_t *json, json_t **clone);
 
 #endif // JSONTPL_UTIL_H

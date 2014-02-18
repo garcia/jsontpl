@@ -57,15 +57,3 @@ int stringify_json(json_t *value, autostr_t *full_name, output_t *output)
     
     verify_return();
 }
-
-#undef verify_cleanup
-#define verify_cleanup free(clone_str)
-int clone_json(json_t *json, json_t **clone)
-{
-    json_error_t error;
-    char *clone_str = json_dumps(json, 0);
-    verify(clone_str != NULL, "internal error (json_dumps failed)");
-    *clone = json_loads(clone_str, 0, &error);
-    verify(*clone != NULL, JSONTPL_JSON_ERROR, error.text, error.line, error.column);
-    verify_return();
-}

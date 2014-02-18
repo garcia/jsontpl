@@ -172,13 +172,14 @@ static int parse_name(
 {
     char ch;
     autostr_t *name = autostr();
-    json_t *name_context = NULL;
+    json_t *name_context = context;
     autostr_t *variable_name = autostr();
     json_t *variable_obj = NULL;
     
-    verify_call(clone_json(context, &name_context));
+    json_incref(name_context);
+    
     verify_call(discard_blank(c));
-
+    
     while ((ch = cursor_peek(c)) != '\0') {
         switch (ch) {
             
