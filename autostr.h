@@ -1,6 +1,8 @@
 #ifndef AUTOSTR_H
 #define AUTOSTR_H
 
+#include <stdlib.h>
+
 /**
  * Initial size to allocate for each instance's char pointer, and size by which
  * to increase or decrease the allocated space when more or less is needed.
