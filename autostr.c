@@ -88,8 +88,12 @@ autostr_t *autostr_append(autostr_t *a, const char *append)
 
 autostr_t *autostr_push(autostr_t *a, char push)
 {
-    char append[2] = {push, '\0'};
-    autostr_append(a, append);
+    if (++a->len == a->size) {
+        a->size += AUTOSTR_CHUNK;
+        a->ptr = realloc(a->ptr, a->size);
+    }
+    a->ptr[a->len - 1] = push;
+    a->ptr[a->len] = '\0';
     
     return a;
 }
