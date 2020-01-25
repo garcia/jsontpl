@@ -12,9 +12,9 @@ Introductory example
         "foo": "bar",
         "grocery_list": ["milk", "eggs", "cheese"],
         "author": {
-            "name": "Grant Garcia",
-            "email": "github@FirstnameLastname.org",
-            "website": "http://grantgarcia.org/"
+            "name": "Joe Blow",
+            "email": "jblow@example.com",
+            "website": "https://example.com/"
         }
     }
 
@@ -35,8 +35,8 @@ Introductory example
     The grocery list has 3 items:
         milk eggs cheese 
     
-    jsontpl was written by Grant Garcia.
-    Contact me at http://grantgarcia.org/ for more information.
+    jsontpl was written by Ash Garcia.
+    Contact me at http://garcia.sh/ for more information.
 
 Values
 ------
